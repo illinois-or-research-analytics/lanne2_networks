@@ -1,0 +1,9 @@
+2024-03-15 16:34:54,798 - INFO - Generating random block assignment...
+2024-03-15 16:34:54,798 - INFO - Time taken: 0.001 seconds
+2024-03-15 16:34:54,798 - INFO - Creating new graph with 1000 nodes and 4 clusters...
+2024-03-15 16:34:54,806 - INFO - Time taken: 0.008 seconds
+2024-03-15 16:34:54,806 - INFO - Statistics of generated graph:
+2024-03-15 16:34:54,806 - INFO - Time taken: 0.0 seconds
+2024-03-15 16:34:54,806 - INFO - Saving generated graph...
+2024-03-15 16:34:54,812 - INFO - Time taken: 0.005 seconds
+2024-03-15 16:34:54,812 - INFO - Total time taken: 0.014 seconds
