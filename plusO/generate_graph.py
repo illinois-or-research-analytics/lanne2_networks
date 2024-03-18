@@ -8,6 +8,7 @@ import typer
 import os
 import time
 import logging
+import matplotlib.pyplot as plt
 
 
 def prob(a, b):
@@ -37,10 +38,38 @@ def generate_new_graph(num_nodes, block_assignment):
     return random_graph, block_assignment_df
 
 def get_graph_stats(graph):
+    stats = {}
     num_vertices = graph.num_vertices()
     num_edges = graph.num_edges()
     print("Number of vertices : ", num_vertices)
     print("Num edges : ", num_edges)
+    stats['num_vertices'] = num_vertices
+    stats['num_edges'] = num_edges
+    out_degrees = graph.get_out_degrees(range(graph.num_vertices()))
+    num_vertices_with_zero_edges = sum(1 for degree in out_degrees if degree == 0)
+    stats['num_isolated'] = num_vertices_with_zero_edges
+    # Compute the degree distribution
+    degree_distribution = graph_tool.stats.vertex_hist(graph, "total")
+    # Plot the degree distribution
+    bins = degree_distribution[1]
+    histogram = degree_distribution[0]
+    plt.bar(bins[:-1], histogram, width=np.diff(bins), align="edge")
+    plt.xlabel("Degree")
+    plt.ylabel("Frequency")
+    plt.title(f"Degree Distribution")
+    # plt.savefig(output_dir+f"/{net_name}_degree_distribution.png")
+    degrees = []
+    for idx, count in enumerate(histogram):
+        degrees.extend([bins[idx]] * int(count))
+    degrees = np.array(degrees)
+    # median, average, q1, q3, min, max
+    degree_stats = [np.median(degrees), np.average(degrees),np.percentile(degrees, 25),np.percentile(degrees, 75),np.min(degrees),np.max(degrees)]
+    stats['degree_dist'] = np.array(degree_stats)
+
+    print(stats)
+    return stats
+
+
 
 def save_generated_graph(graph, block_assignment_df, out_edge_file, out_block_file):
     edges = graph.get_edges()
@@ -50,6 +79,7 @@ def save_generated_graph(graph, block_assignment_df, out_edge_file, out_block_fi
 
 def main(num_nodes: int = typer.Option(..., "--num_nodes", "-n"),
     num_blocks: int = typer.Option(..., "--num_blocks", "-b"),
+    net_name: str = typer.Option(..., "--net_name", "-m"),
     out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
     out_block_file: str = typer.Option("", "--out_block_file", "-ob")):
     
@@ -62,12 +92,12 @@ def main(num_nodes: int = typer.Option(..., "--num_nodes", "-n"),
     generation_start_time = time.time()
 
     if out_edge_file == "":
-        out_edge_file = f'SBM_samples/generated_graph_edge_list_{num_nodes}_{num_blocks}.tsv'
+        out_edge_file = f'SBM_samples/{net_name}/generated_graph_edge_list_{num_nodes}_{num_blocks}.tsv'
     else:
         out_edge_file = out_edge_file
 
     if out_block_file == "":
-        out_block_file = f'SBM_samples/generated_graph_block_assignment_{num_nodes}_{num_blocks}.csv'
+        out_block_file = f'SBM_samples/{net_name}/generated_graph_block_assignment_{num_nodes}_{num_blocks}.csv'
     else:
         out_block_file = out_block_file
     output_dir = os.path.dirname(out_edge_file)
@@ -112,8 +142,12 @@ if __name__ == "__main__":
         help='number of nodes'
         )
     parser.add_argument(
-        '-b', metavar='resolution', type=int, required=True,
+        '-b', metavar='num_blocks', type=int, required=True,
         help='number of blocks'
+        ),
+    parser.add_argument(
+        '-m', metavar='network_name', type=str, required=True,
+        help='name of the network'
         )
     parser.add_argument(
         '-oe', metavar='out_edge_file', type=str, required=False,
