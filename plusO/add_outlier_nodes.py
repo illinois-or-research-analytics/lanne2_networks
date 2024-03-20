@@ -22,12 +22,15 @@ def add_outlier_nodes(N, p, graph,node_mapping ):
     for node_id in range(max_node_id+1, max_node_id+N+1):
         # nodes_in_block = block_assignment_df[block_assignment_df['block']==block_id]['node_id'].to_numpy()
         # vertices = graph.get_vertices()
-        node_choices = np.concatenate([vertices, np.arange((max_node_id+1), node_id)])
+        # node_choices = np.concatenate([vertices, np.arange((max_node_id+1), node_id)])
+        node_choices = np.concatenate([vertices, outlier_nodes])
         num_new_edges = int(p * len(node_choices))
         selected_nodes = np.random.choice(node_choices, size=num_new_edges, replace=False)
         for target in selected_nodes:
             modified_graph.addEdge(node_id, target, addMissing = True)
         outlier_nodes.append(node_id)
+        if (len(outlier_nodes) % 1000 == 0):
+            print("Number of nodes added : " ,len(outlier_nodes))
         node_mapping[node_id] = str(node_id)
     return modified_graph, outlier_nodes, node_mapping
 
