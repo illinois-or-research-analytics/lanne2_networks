@@ -16,12 +16,14 @@ def deg_sampler(index):
     return degree_seq[index]
 
 def generate_graph(deg_seq):
+    global degree_seq
+    degree_seq = deg_seq
     N = len(deg_seq)
     generated_graph = gt.random_graph(N, deg_sampler=deg_sampler, directed=False, parallel_edges=False, self_loops=False)
     return generated_graph
 
 def read_file(degree_sequence_filepath):
-    global degree_seq
+    # global degree_seq
     degree_seq = pd.read_csv(degree_sequence_filepath, header=None)[0].to_numpy()
     print(len(degree_seq))
     return degree_seq

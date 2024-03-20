@@ -70,7 +70,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
-    generation_start_time = time.time()
+    plusO_start_time = time.time()
 
     try:
         logging.info("Reading generated graph...")
@@ -96,6 +96,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         fig.savefig(output_dir+f"/{net_name}_{num_nodes}_{probability}_afterplusO_degree_distribution.png")
         print(combined_df)
         combined_df.to_csv(f'{output_dir}/{net_name}_{num_nodes}_{probability}_stats.csv')
+        logging.info(f"Total Time taken: {round(time.time() - plusO_start_time, 3)} seconds")
     except Exception as e:
         print(e)
 
