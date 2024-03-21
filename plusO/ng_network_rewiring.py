@@ -166,6 +166,8 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
     out_node_file: str = typer.Option("", "--out_node_file", "-on"),
     out_edge_file_Gstar: str = typer.Option("", "--out_edge_file_Gstar", "-gs"),
+    out_edge_file_NGstar: str = typer.Option("", "--out_edge_file_Gstar", "-ngs"),
+    out_edge_file_G_c: str = typer.Option("", "--out_edge_file_G_c", "-gc"),
     out_edge_file_N_c: str = typer.Option("", "--out_edge_file_N_c", "-nc")):
 
     if out_edge_file == "":
@@ -182,6 +184,16 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         out_edge_file_Gstar = f'NG_rewiring_samples/{net_name}/Gstar_graph_edge_list.tsv'
     else:
         out_edge_file_Gstar = out_edge_file_Gstar
+    
+    if out_edge_file_NGstar == "":
+        out_edge_file_NGstar = f'NG_rewiring_samples/{net_name}/NGstar_graph_edge_list.tsv'
+    else:
+        out_edge_file_NGstar = out_edge_file_NGstar
+
+    if out_edge_file_G_c == "":
+        out_edge_file_G_c = f'NG_rewiring_samples/{net_name}/G_c_graph_edge_list.tsv'
+    else:
+        out_edge_file_G_c = out_edge_file_G_c
     
     if out_node_file == "":
         out_node_file = f'NG_rewiring_samples/{net_name}/Nstar_graph_node_list.tsv'
@@ -221,7 +233,16 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         clustered_nodes_mapped = [node_mapping.get(str(v)) for v in clustered_nodes]
         G_c = nk.graphtools.subgraphFromNodes(G, clustered_nodes_mapped)
         num_clustered_nodes, num_cluster_edges = get_graph_stats(G_c)
+        G_c_edge_list = []
+        for edge in G_c.iterEdges():
+            G_c_edge_list.append(edge)
+        save_generated_graph(G_c_edge_list, out_edge_file_G_c)
         print("Number of clustered nodes : ", num_clustered_nodes , "\t Number of clustered edges : ", num_cluster_edges)
+        logging.info("Getting graph stats for G_c")
+        start_time = time.time()
+        stats_df_G_c, fig = stats.main(out_edge_file_G_c, [], 'G_c_step1')
+        print(stats_df_G_c)
+        fig.savefig(output_dir+f"/{net_name}_G_c_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Removing cluster edges from G to get G* or G_star")
         start_time = time.time()
@@ -278,30 +299,47 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
             N_c_nodes_list.add(target)
         print(len(N_c_nodes_list), len(N_c_edge_list))
         save_generated_graph(N_c_edge_list, out_edge_file_N_c)
-        N_star_edges = []
-        N_star_edges = N_star_edges + N_c_edge_list
-        for Ni_edges in N_i_edge_lists:
-            N_star_edges = N_star_edges + Ni_edges
-        print("N_star_edges : " ,len(N_star_edges))
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        logging.info("Saving generated graph edge list! ")
-        start_time = time.time()
-        save_generated_graph(N_star_edges, out_edge_file)
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Statistics of generated graph N_c:")
         start_time = time.time()
         stats_df_N_c, fig = stats.main(out_edge_file_N_c, [], 'N_c_step1')
         print(stats_df_N_c)
         fig.savefig(output_dir+f"/{net_name}_N_c_step1_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        N_star_edges = []
+        for Ni_edges in N_i_edge_lists:
+            N_star_edges = N_star_edges + Ni_edges
+        #Save N(G*) till here
+        save_generated_graph(N_star_edges, out_edge_file_NGstar)
+        logging.info("Statistics of generated graph NGstar:")
+        start_time = time.time()
+        stats_df_NGstar, fig = stats.main(out_edge_file_NGstar, [], 'NGstar_step2')
+        print(stats_df_NGstar)
+        fig.savefig(output_dir+f"/{net_name}_NGstar_step2_degree_distribution.png")
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
+        N_star_edges = N_star_edges + N_c_edge_list
+        print("N_star_edges : " ,len(N_star_edges))
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        logging.info("Saving generated graph edge list! ")
+        start_time = time.time()
+        save_generated_graph(N_star_edges, out_edge_file)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        # logging.info("Statistics of generated graph N_c:")
+        # start_time = time.time()
+        # stats_df_N_c, fig = stats.main(out_edge_file_N_c, [], 'N_c_step1')
+        # print(stats_df_N_c)
+        # fig.savefig(output_dir+f"/{net_name}_N_c_step1_degree_distribution.png")
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Statistics of generated graph N_star:")
         start_time = time.time()
         # num_vertices, num_edges = get_graph_stats()
         stats_df_Nstar, fig = stats.main(out_edge_file, [], 'N_star')
         print(stats_df_Nstar)
         fig.savefig(output_dir+f"/{net_name}_N_star_step3_degree_distribution.png")
-        combined_df = pd.concat([stats_df_G, stats_df_N_c])
+        combined_df = pd.concat([stats_df_G_c, stats_df_N_c])
         combined_df = pd.concat([combined_df, stats_df_Gstar])
+        combined_df = pd.concat([combined_df, stats_df_NGstar])
+        combined_df = pd.concat([combined_df, stats_df_G])
         combined_df = pd.concat([combined_df, stats_df_Nstar])
         print(combined_df)
         combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
@@ -340,6 +378,14 @@ if __name__ == "__main__":
     parser.add_argument(
         '-gs', metavar='out_edge_file_Gstar', type=str, required=False,
         help='output nodelist path for Gstar'
+        )
+    parser.add_argument(
+        '-ngs', metavar='out_edge_file_NGstar', type=str, required=False,
+        help='output nodelist path for NGstar'
+        )
+    parser.add_argument(
+        '-gc', metavar='out_edge_file_G_c', type=str, required=False,
+        help='output nodelist path for G_c'
         )
     args = parser.parse_args()
 
