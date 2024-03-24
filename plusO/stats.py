@@ -22,6 +22,8 @@ def get_isolated_vertices(graph):
     return isolated_vertices, degrees_list
 
 def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
+    print(graph.numberOfSelfLoops())
+    
     stats = {}
     num_vertices = graph.numberOfNodes()
     num_edges = graph.numberOfEdges()
@@ -29,6 +31,15 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     print("Num edges : ", num_edges)
     stats[f'num_vertices_{stage}'] = num_vertices
     stats[f'num_edges_{stage}'] = num_edges
+
+    graph.removeMultiEdges()
+    graph.removeSelfLoops()
+    num_vertices = graph.numberOfNodes()
+    num_edges = graph.numberOfEdges()
+    print("Number of vertices : ", num_vertices)
+    print("Num edges after removing self-loops and duplicate parallel edges: ", num_edges)
+    stats[f'num_vertices_cleaned_{stage}'] = num_vertices
+    stats[f'num_edges_cleaned_{stage}'] = num_edges
     isolated_vertices, degrees_list = get_isolated_vertices(graph)
     stats[f'num_isolated_{stage}'] = len(isolated_vertices)
 
@@ -36,7 +47,9 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     # degrees, numberOfNodes = np.unique(dd, return_counts=True)
     degrees_list = np.array(degrees_list)
     degrees, counts = np.unique(degrees_list, return_counts=True)
-
+    if degrees.min()>1:
+        degrees = np.append(degrees,1)
+        counts = np.append(counts,0)
     fig = plt.figure()
     plt.title(f"Degree distribution - {stage}")
     plt.xscale("log")
