@@ -67,7 +67,7 @@ def remove_edges(G, G_c):
 
 def get_probs(G_c, node_mapping, cluster_df):
     # Create a mapping from numerical node IDs to string IDs
-    numerical_to_string_mapping = {v: k for k, v in node_mapping.items()}
+    numerical_to_string_mapping = {v: str(k) for k, v in node_mapping.items()}
     
     # Get unique cluster IDs and their counts
     cluster_ids, counts = np.unique(cluster_df['cluster_id'], return_counts=True)
@@ -76,18 +76,41 @@ def get_probs(G_c, node_mapping, cluster_df):
     # Create a mapping from cluster ID to its index
     cluster_id_to_idx = {cluster_id: idx for idx, cluster_id in enumerate(cluster_ids)}
     
+    # Precompute the cluster nodes dictionary for faster lookup
+    cluster_nodes_dict = {}
+    for cluster_id, count in zip(cluster_ids, counts):
+        cluster_nodes_dict[cluster_id] = cluster_df[cluster_df['cluster_id'] == cluster_id]['node_id'].values
     # Initialize the probabilities matrix
     probs = np.zeros((num_clusters, num_clusters))
     
     # Iterate over cluster IDs
-    for edge in G_c.iterEdges():
-        source = node_mapping.get(edge[0])
-        target = node_mapping.get(edge[1])
-        source_cluster_idx = cluster_id_to_idx.get(cluster_df[cluster_df['node_id']==source]['cluster_id'])
-        target_cluster_idx = cluster_id_to_idx.get(cluster_df[cluster_df['node_id']==target]['cluster_id'])
-        probs[source_cluster_idx, source_cluster_idx] += 1
-        probs[source_cluster_idx, source_cluster_idx ] += 1
-    print("Number of edges as per probs matrix: " , probs.trace()//2 + (probs.sum() - probs.trace())//2)
+    for cluster_id in cluster_ids:
+        # Get the index of the current cluster
+        cluster_idx = cluster_id_to_idx[cluster_id]
+        
+        # Get the nodes belonging to the current cluster
+        cluster_nodes = cluster_nodes_dict[cluster_id]
+        
+        
+        # Iterate over nodes in the current cluster
+        for node in cluster_nodes:
+            # Get the neighbors of the current node
+            neighbors = G_c.iterNeighbors(node_mapping[str(node)])
+            # print("Node : ", node, "Neighbors : ", neighbors)
+            
+            # Iterate over neighbors
+            for neighbor in neighbors:
+                # Get the cluster ID of the neighbor
+                neighbor_cluster_id = cluster_df[cluster_df['node_id'] == int(numerical_to_string_mapping.get(neighbor))]['cluster_id'].values[0]
+                # neighbor_cluster_id = cluster_df.at[int(numerical_to_string_mapping[neighbor]), 'cluster_id']
+                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id)
+                # Get the index of the neighbor's cluster
+                neighbor_cluster_idx = cluster_id_to_idx[neighbor_cluster_id]
+                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id, "neighbor_cluster_idx", neighbor_cluster_idx)
+                # Increment the corresponding entry in the probabilities matrix
+                probs[cluster_idx, neighbor_cluster_idx] += 1
+                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id, "neighbor_cluster_idx", neighbor_cluster_idx)
+    print(probs.trace()//2 + (probs.sum() - probs.trace())//2)
     return probs
 
 def get_degree_sequence(cluster_df, G_c, node_mapping,step, non_singleton_components):

@@ -18,7 +18,7 @@ def add_outlier_nodes(N, p, graph,node_mapping ):
     outlier_nodes = []
     
     vertices = [v for v in modified_graph.iterNodes()]
-    added_edges = []
+
     for node_id in range(max_node_id+1, max_node_id+N+1):
         # nodes_in_block = block_assignment_df[block_assignment_df['block']==block_id]['node_id'].to_numpy()
         # vertices = graph.get_vertices()
@@ -27,20 +27,16 @@ def add_outlier_nodes(N, p, graph,node_mapping ):
         num_new_edges = int(p * len(node_choices))
         selected_nodes = np.random.choice(node_choices, size=num_new_edges, replace=False)
         for target in selected_nodes:
-            # modified_graph.addEdge(node_id, target, addMissing = True)
-            added_edges.append([node_id, target])
+            modified_graph.addEdge(node_id, target, addMissing = True)
         outlier_nodes.append(node_id)
         if (len(outlier_nodes) % 1000 == 0):
             print("Number of nodes added : " ,len(outlier_nodes))
         node_mapping[node_id] = str(node_id)
-    #Instead of adding edges, store the new edges combined with old edges in a file and read the edge list again as a new graph!!
-    return added_edges, outlier_nodes, node_mapping
+    return modified_graph, outlier_nodes, node_mapping
 
-def save_generated_graph(graph,added_edges, node_mapping,out_edge_file, out_node_file):
+def save_generated_graph(graph, node_mapping,out_edge_file, out_node_file):
     edges = []
     for edge in graph.iterEdges():
-        edges.append([node_mapping.get(edge[0]), node_mapping.get(edge[1])])
-    for edge in added_edges:
         edges.append([node_mapping.get(edge[0]), node_mapping.get(edge[1])])
     edge_df = pd.DataFrame(edges, columns=['source', 'target'])
     edge_df.to_csv(out_edge_file, sep='\t', index=False, header=None)
@@ -58,12 +54,12 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     out_node_file: str = typer.Option("", "--out_node_file", "-on")):
 
     if out_edge_file == "":
-        out_edge_file = f'Add_Outliers_samples/{net_name}/modified_graph_edge_list_{num_nodes}_{probability}.tsv'
+        out_edge_file = f'SBM_samples/{net_name}/modified_graph_edge_list_{num_nodes}_{probability}.tsv'
     else:
         out_edge_file = out_edge_file
     
     if out_node_file == "":
-        out_node_file = f'Add_Outliers_samples/{net_name}/modified_graph_node_list_{num_nodes}_{probability}.tsv'
+        out_node_file = f'SBM_samples/{net_name}/modified_graph_node_list_{num_nodes}_{probability}.tsv'
     else:
         out_node_file = out_node_file
 
@@ -71,7 +67,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    logging.basicConfig(filename=f'Add_Outliers_samples/{net_name}/plusO_{num_nodes}_{probability}_output.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(filename=f'SBM_samples/{net_name}/SBM_plusO_{num_nodes}_{probability}_output.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -90,10 +86,11 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         fig.savefig(output_dir+f"/{net_name}_{num_nodes}_{probability}_beforeplusO_degree_distribution.png")
         new_num_nodes = int(num_nodes/100  * num_vertices)
         logging.info(f"Adding Outlier nodes {new_num_nodes} with probability {probability}")
-        added_edges,outlier_nodes, node_mapping = add_outlier_nodes(new_num_nodes, probability, graph,node_mapping)
+        modified_graph,outlier_nodes, node_mapping = add_outlier_nodes(new_num_nodes, probability, graph,node_mapping)
         # get_graph_stats(modified_graph)
+        
         logging.info("Saving Modified graph edgelist and node list!")
-        save_generated_graph(graph, added_edges,node_mapping, out_edge_file, out_node_file)
+        save_generated_graph(modified_graph, node_mapping, out_edge_file, out_node_file)
         logging.info("Statistics of modified graph:")
         stats_df_after, fig = stats.main(out_edge_file, outlier_nodes, 'afterplusO')
         print(stats_df_after)
@@ -127,7 +124,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate graph ')
     parser.add_argument(
         '-f', metavar='graph_filepath', type=str, required=True,
-        help='edgelist tsv file for input graph'
+        help='edgelist tsv file for SBM generated graph'
         )
     parser.add_argument(
         '-n', metavar='num_nodes', type=int, required=True,
