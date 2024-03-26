@@ -13,10 +13,9 @@ import stats
 import networkit as nk
 import ng_eds as ng_eds
 from scipy.sparse import dok_matrix
+import psutil
 
 def read_graph(filepath):
-    # graph = gt.load_graph_from_csv(filepath, directed=False, csv_options={'delimiter': '\t'})
-    # return graph
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)
     nk_graph = edgelist_reader.read(filepath)
     node_mapping = edgelist_reader.getNodeMap()
@@ -51,7 +50,6 @@ def get_probs(G_c, node_mapping, cluster_df):
     numerical_to_string_mapping = {v: int(k) for k, v in node_mapping.items()}
     cluster_ids, counts = np.unique(cluster_df['cluster_id'], return_counts=True)
     num_clusters = len(cluster_ids)
-    cluster_id_to_idx = {cluster_id: idx for idx, cluster_id in enumerate(cluster_ids)}
     
     node_to_cluster_dict = cluster_df.set_index('node_id')['cluster_id'].to_dict()
 
@@ -60,8 +58,6 @@ def get_probs(G_c, node_mapping, cluster_df):
     for edge in G_c.iterEdges():
         source = numerical_to_string_mapping.get(edge[0])
         target = numerical_to_string_mapping.get(edge[1])
-        # source_cluster_idx = cluster_id_to_idx.get(cluster_df[cluster_df['node_id']==source]['cluster_id'].values[0])
-        # target_cluster_idx = cluster_id_to_idx.get(cluster_df[cluster_df['node_id']==target]['cluster_id'].values[0])
         source_cluster_idx = node_to_cluster_dict.get(source)
         target_cluster_idx = node_to_cluster_dict.get(target)
 
@@ -90,7 +86,6 @@ def get_connected_components(G_star):
     cc.run()
     connected_components = cc.getComponents()
     non_singleton_components = [component for component in connected_components if len(component) > 1]
-    # print(cc.numberOfComponents(),len(connected_components))
     component_sizes = cc.getComponentSizes()
     return non_singleton_components
 
@@ -104,8 +99,7 @@ def rewire_non_singleton_components(non_singleton_components, deg_sequences, nod
         edge_list = []
         edges = generated_graph.get_edges()
         for edge in edges:
-            # print(edge, [component[edge[0]], component[edge[1]]])
-            edge_list.append([int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))])
+            edge_list.append((int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))))
         edge_lists.append(edge_list)
     return edge_lists
 
@@ -165,11 +159,20 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     logging.getLogger('').addHandler(console)
     rewiring_start_time = time.time()
 
+    def log_cpu_ram_usage(step_name):
+        cpu_percent = psutil.cpu_percent()
+        ram_percent = psutil.virtual_memory().percent
+        disk_percent = psutil.disk_usage('/').percent
+        logging.info(f"Step: {step_name} | CPU Usage: {cpu_percent}% | RAM Usage: {ram_percent}% | Disk Usage: {disk_percent}")
+
+
     try:
+        log_cpu_ram_usage("Start")
         logging.info("Reading generated graph...")
         start_time = time.time()
         G,node_mapping = read_graph(edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After reading graph")
         logging.info("Statistics of read graph:")
         stats_df_G, fig = stats.main(edge_input, [], 'original_input_graph')
         print(stats_df_G)
@@ -178,6 +181,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         start_time = time.time()
         cluster_df = read_clustering(cluster_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After getting probs matrix")
         logging.info("Getting subgraph G_c")
         start_time = time.time()
         clustered_nodes = cluster_df['node_id'].unique()
@@ -195,6 +199,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_G_c)
         fig.savefig(output_dir+f"/{net_name}_G_c_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Removing cluster edges from G to get G* or G_star")
         start_time = time.time()
         Gstar = remove_edges(G, G_c)
@@ -203,6 +208,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
             Gstar_edge_list.append(edge)
         save_generated_graph(Gstar_edge_list, out_edge_file_Gstar)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Getting graph stats for G_star")
         start_time = time.time()
         num_nodes_Gstar, num_edges_Gstar = get_graph_stats(Gstar)
@@ -211,10 +217,12 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         fig.savefig(output_dir+f"/{net_name}_Gstar_degree_distribution.png")
         print("Number of nodes in G*: ", num_nodes_Gstar , "\t Number of edges in G*: ", num_edges_Gstar)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Getting edge probs matrix for G_c ")
         start_time = time.time()
         probs = get_probs(G_c, node_mapping, cluster_df)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After getting probs matrix")
         logging.info("Generating Synthetic graph N_c with probs")
         start_time = time.time()
         b = cluster_df['cluster_id'].to_numpy()
@@ -222,27 +230,32 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         N_c = gt.generate_sbm(b, probs, out_degs=out_deg_seq, micro_ers=True, micro_degs=True)
         print("N_c graph statistics : ", N_c.num_vertices(), N_c.num_edges())
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Generating non-singleton components of G* ")
         start_time = time.time()
         non_singleton_components = get_connected_components(Gstar)
         print("Number of non singleton components : ", len(non_singleton_components))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Compute degree sequence for each of the non-singleton components!")
         start_time = time.time()
         deg_sequences = get_degree_sequence(cluster_df, Gstar, node_mapping,4, non_singleton_components)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Performing ng-eds on each non-singleton component")
         start_time = time.time()
         N_i_edge_lists = rewire_non_singleton_components(non_singleton_components, deg_sequences, node_mapping)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After computing ng-eds for all singleton components")
         logging.info("Combining N_is and N_c edges")
         start_time = time.time()
-        N_c_edge_list = []
+        node_idx_set = cluster_df['node_id'].tolist()
+        N_c_edge_list = set()
         N_c_nodes_list = set()
         for edge in N_c.get_edges():
-            source = cluster_df.iloc[edge[0]]['node_id']
-            target = cluster_df.iloc[edge[1]]['node_id']
-            N_c_edge_list.append([source, target])
+            source = node_idx_set[edge[0]]
+            target = node_idx_set[edge[1]]
+            N_c_edge_list.add((source, target))
             N_c_nodes_list.add(source)
             N_c_nodes_list.add(target)
         print(len(N_c_nodes_list), len(N_c_edge_list))
@@ -253,9 +266,10 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_N_c)
         fig.savefig(output_dir+f"/{net_name}_N_c_step1_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        N_star_edges = []
+        log_cpu_ram_usage("After N_c graph generation and stats calculation")
+        N_star_edges = set()
         for Ni_edges in N_i_edge_lists:
-            N_star_edges = N_star_edges + Ni_edges
+            N_star_edges.update(Ni_edges)
         #Save N(G*) till here
         save_generated_graph(N_star_edges, out_edge_file_NGstar)
         logging.info("Statistics of generated graph NGstar:")
@@ -264,14 +278,16 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_NGstar)
         fig.savefig(output_dir+f"/{net_name}_NGstar_step2_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After NGstar graph generation and stats calculation!")
 
-        N_star_edges = N_star_edges + N_c_edge_list
+        N_star_edges.update(N_c_edge_list)
         print("N_star_edges : " ,len(N_star_edges))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Saving generated graph edge list! ")
         start_time = time.time()
         save_generated_graph(N_star_edges, out_edge_file)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After saving N_star edges")
         logging.info("Statistics of generated graph N_star:")
         start_time = time.time()
         stats_df_Nstar, fig = stats.main(out_edge_file, [], 'N_star')
@@ -285,7 +301,9 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(combined_df)
         combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After N_star computation!!")
         logging.info(f"Total Time taken: {round(time.time() - rewiring_start_time, 3)} seconds")
+        log_cpu_ram_usage("Usage statistics after job completion!")
 
     except Exception as e:
         print(e)

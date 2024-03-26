@@ -11,6 +11,7 @@ import time
 import logging
 import stats
 import matplotlib.pyplot as plt
+import psutil
 
 def add_outlier_nodes(N, p, graph,node_mapping, edge_list_filepath,output_graph_file_path, out_node_file):
     # output_graph_file_path = "./new_cit_patents.tsv"
@@ -94,12 +95,22 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
     plusO_start_time = time.time()
+    def log_cpu_ram_usage(step_name):
+        cpu_percent = psutil.cpu_percent()
+        ram_percent = psutil.virtual_memory().percent
+        disk_percent = psutil.disk_usage('/').percent
+        logging.info(f"Step: {step_name} | CPU Usage: {cpu_percent}% | RAM Usage: {ram_percent}% | Disk Usage: {disk_percent}")
+
+
 
     try:
+        # Log CPU and RAM usage at the beginning
+        log_cpu_ram_usage("Start")
         logging.info("Reading generated graph...")
         start_time = time.time()
         graph,node_mapping = read_graph(edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Statistics of read graph:")
         start_time = time.time()
         num_vertices, num_edges = get_graph_stats(graph)
@@ -109,6 +120,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         fig.savefig(output_dir+f"/{net_name}_{num_nodes}_{probability}_beforeplusO_degree_distribution.png")
         new_num_nodes = int(num_nodes/100  * num_vertices)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info(f"Adding Outlier nodes {new_num_nodes} with probability {probability}")
         start_time = time.time()
         added_edges,outlier_nodes, node_mapping = add_outlier_nodes(new_num_nodes, probability, graph,node_mapping,edge_input, out_edge_file, out_node_file)
@@ -116,6 +128,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         # logging.info("Saving Modified graph edgelist and node list!")
         # save_generated_graph(graph, added_edges,node_mapping, out_edge_file, out_node_file)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Statistics of modified graph:")
         start_time = time.time()
         stats_df_after, fig = stats.main(out_edge_file, outlier_nodes, 'afterplusO')
@@ -125,6 +138,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(combined_df)
         combined_df.to_csv(f'{output_dir}/{net_name}_{num_nodes}_{probability}_stats.csv')
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info(f"Total Time taken: {round(time.time() - plusO_start_time, 3)} seconds")
     except Exception as e:
         print(e)
