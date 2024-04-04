@@ -58,8 +58,8 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     plt.ylabel("number of nodes")
     plt.plot(degrees, counts)
 
-    degree_stats = [np.median(degrees_list), np.average(degrees_list),np.percentile(degrees_list, 25),np.percentile(degrees_list, 75),np.min(degrees_list),np.max(degrees_list)]
-    stats[f'degree_dist_{stage}_(# median, average, q1, q3, min, max)'] = np.array(degree_stats)
+    degree_stats = [np.min(degrees_list),np.percentile(degrees_list, 25),np.median(degrees_list), np.percentile(degrees_list, 75),np.max(degrees_list),np.average(degrees_list)]
+    stats[f'degree_dist_{stage}_(#min,q1,median,q3,max,average)'] = [round(num, 2) for num in degree_stats]
     outlier_degrees = []
     print("Started outlier degree statistics!")
     outlier_degrees_dict = {}
@@ -78,9 +78,10 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
         print("Processed all edges")
         stats[f'outlier_edges_{stage}'] = outlier_edges
         outlier_degrees = list(outlier_degrees_dict.values())
-        outlier_degree_stats = [np.median(outlier_degrees), np.average(outlier_degrees),np.percentile(outlier_degrees, 25),np.percentile(outlier_degrees, 75),np.min(outlier_degrees),np.max(outlier_degrees)]
-        stats[f'outlier_degree_dist_{stage}_(# median, average, q1, q3, min, max)'] = outlier_degree_stats
-    
+        outlier_degree_stats = [np.min(outlier_degrees),np.percentile(outlier_degrees, 25),np.median(outlier_degrees),np.percentile(outlier_degrees, 75),np.max(outlier_degrees), np.average(outlier_degrees)]
+        stats[f'outlier_degree_dist_{stage}_(#min,q1,median,q3,max,average)'] = [round(num, 2) for num in outlier_degree_stats]
+        isolated_outlier_vertices = set(isolated_vertices) & mapped_outlier_nodes
+        stats[f'isolated_outlier_nodes_{stage}'] = len(isolated_outlier_vertices)
     print("Outlier degree statistics done")
 
     cc = nk.components.ConnectedComponents(graph)
