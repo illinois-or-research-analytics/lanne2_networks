@@ -22,21 +22,22 @@ def get_isolated_vertices(graph):
     return isolated_vertices, degrees_list, degrees_dict
 
 def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
-    print(graph.numberOfSelfLoops())
+    print("Number of self loops : ",graph.numberOfSelfLoops())
     
     stats = {}
     num_vertices = graph.numberOfNodes()
-    num_edges = graph.numberOfEdges()
+    num_edges_read = graph.numberOfEdges()
     print("Number of vertices : ", num_vertices)
-    print("Num edges : ", num_edges)
+    print("Num edges : ", num_edges_read)
     stats[f'num_vertices_{stage}'] = num_vertices
-    stats[f'num_edges_{stage}'] = num_edges
+    stats[f'num_edges_{stage}'] = num_edges_read
 
     graph.removeMultiEdges()
     graph.removeSelfLoops()
     num_vertices = graph.numberOfNodes()
     num_edges = graph.numberOfEdges()
     print("Number of vertices : ", num_vertices)
+    print("Number of parallel/multiedges : " , (num_edges_read-num_edges))
     print("Num edges after removing self-loops and duplicate parallel edges: ", num_edges)
     stats[f'num_vertices_cleaned_{stage}'] = num_vertices
     stats[f'num_edges_cleaned_{stage}'] = num_edges

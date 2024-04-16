@@ -142,28 +142,47 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         for edge in G.iterEdges():
             source = node_mapping_reversed.get(edge[0])
             target = node_mapping_reversed.get(edge[1])
-            if (source in unclustered_nodes):
-                cluster_id_of_target = clustering_dict.get(target)
-                if source in outlier_cluster_edge_counts.keys():
-                    cluster_edge_counts = outlier_cluster_edge_counts.get(source)
-                    if cluster_id_of_target in cluster_edge_counts.keys():
-                        cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            outlier_nodes_list = []
+            dest_cluster_id = None
+            if(source in unclustered_nodes):
+                dest_cluster_id = clustering_dict.get(target)
+                outlier_nodes_list.append(source)
+            if(target in unclustered_nodes):
+                dest_cluster_id = clustering_dict.get(source)
+                outlier_nodes_list.append(target)
+            
+            for n in outlier_nodes_list:
+                if n in outlier_cluster_edge_counts.keys():
+                    cluster_edge_counts = outlier_cluster_edge_counts.get(n)
+                    if dest_cluster_id in cluster_edge_counts.keys():
+                        cluster_edge_counts[dest_cluster_id] = cluster_edge_counts.get(dest_cluster_id)+1
                     else:
-                        cluster_edge_counts[cluster_id_of_target] = 1
+                        cluster_edge_counts[dest_cluster_id] = 1
                 else:
-                    outlier_cluster_edge_counts[source] = {cluster_id_of_target : 1}
+                    outlier_cluster_edge_counts[n] = {dest_cluster_id : 1}
+
+            # if (source in unclustered_nodes):
+            #     cluster_id_of_target = clustering_dict.get(target)
+            #     if source in outlier_cluster_edge_counts.keys():
+            #         cluster_edge_counts = outlier_cluster_edge_counts.get(source)
+            #         if cluster_id_of_target in cluster_edge_counts.keys():
+            #             cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #         else:
+            #             cluster_edge_counts[cluster_id_of_target] = 1
+            #     else:
+            #         outlier_cluster_edge_counts[source] = {cluster_id_of_target : 1}
                 
-            if (target in unclustered_nodes):
-                cluster_id_of_target = clustering_dict.get(source)
-                if target in outlier_cluster_edge_counts.keys():
-                    cluster_edge_counts = outlier_cluster_edge_counts.get(target)
-                    if cluster_id_of_target in cluster_edge_counts.keys():
-                        cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
-                    else:
-                        cluster_edge_counts[cluster_id_of_target] = 1
-                    cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
-                else:
-                    outlier_cluster_edge_counts[target] = {cluster_id_of_target : 1}
+            # if (target in unclustered_nodes):
+            #     cluster_id_of_target = clustering_dict.get(source)
+            #     if target in outlier_cluster_edge_counts.keys():
+            #         cluster_edge_counts = outlier_cluster_edge_counts.get(target)
+            #         if cluster_id_of_target in cluster_edge_counts.keys():
+            #             cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #         else:
+            #             cluster_edge_counts[cluster_id_of_target] = 1
+            #         cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #     else:
+            #         outlier_cluster_edge_counts[target] = {cluster_id_of_target : 1}
 
         print("len(unclustered_nodes), len(outlier_cluster_edge_count.keys()) : ", len(unclustered_nodes), len(outlier_cluster_edge_counts.keys()))
 
