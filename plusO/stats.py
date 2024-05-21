@@ -7,21 +7,42 @@ import logging
 import matplotlib.pyplot as plt
 import argparse
 import numpy as np 
-import pandas as pd
+from collections import defaultdict
 
-def get_isolated_vertices(graph):
+def get_isolated_vertices(graph, clustering_dict, node_mapping):
+    numerical_to_string_mapping = {v: int(k) for k, v in node_mapping.items()}
     isolated_vertices = []
     degrees_dict = {}
     degrees_list = []
+    check_participation = False
+    participation_dict = defaultdict(dict)
+    if len(clustering_dict)>1:
+        check_participation = True
     for v in graph.iterNodes():
+        isolated = False
         deg = graph.degree(v)
         if graph.isIsolated(v):
             isolated_vertices.append(v)
+            isolated = True
+        
+        if check_participation:
+            for neighbor in graph.iterNeighbors(v):
+                neighbor_cluster = clustering_dict.get(numerical_to_string_mapping.get(neighbor))
+                if neighbor_cluster is None:
+                    neighbor_cluster = -1
+                node_participation_dict = participation_dict[numerical_to_string_mapping.get(v)]
+                if neighbor_cluster in node_participation_dict.keys():
+                    node_participation_dict[neighbor_cluster] = node_participation_dict.get(neighbor_cluster) + 1
+                else:
+                    node_participation_dict[neighbor_cluster] = 1
+            if isolated:
+                participation_dict[numerical_to_string_mapping.get(v)] = {-1:0}
+                
         degrees_list.append(deg)
         degrees_dict[v] = deg
-    return isolated_vertices, degrees_list, degrees_dict
+    return isolated_vertices, degrees_list, degrees_dict, participation_dict
 
-def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
+def get_graph_stats(graph, outlier_nodes, stage, node_mapping, clustering_dict):
     print("Number of self loops : ",graph.numberOfSelfLoops())
     
     stats = {}
@@ -41,7 +62,7 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     print("Num edges after removing self-loops and duplicate parallel edges: ", num_edges)
     stats[f'num_vertices_cleaned_{stage}'] = num_vertices
     stats[f'num_edges_cleaned_{stage}'] = num_edges
-    isolated_vertices, degrees_list, degrees_dict = get_isolated_vertices(graph)
+    isolated_vertices, degrees_list, degrees_dict, participation_dict = get_isolated_vertices(graph, clustering_dict, node_mapping)
     stats[f'num_isolated_{stage}'] = len(isolated_vertices)
 
     # dd = sorted(nk.centrality.DegreeCentrality(graph).run().scores(), reverse=True)
@@ -68,6 +89,13 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     for node in outlier_nodes:
         mapped_outlier_nodes.add(node_mapping.get(str(node)))
     print("Got mapped outlier nodes!")
+    # if(len(outlier_nodes)>0):
+    #     outlier_node_set = set(outlier_nodes)
+    #     outlier_edges_new = 0
+    #     for node in participation_dict.keys():
+    #         if node in outlier_node_set  and -1 in participation_dict.get(node).keys():
+    #             outlier_edges_new += participation_dict.get(node).get(-1)
+    #     print("New logic to compute outlier-outlier edges !", outlier_edges_new)
     if len(outlier_nodes)>0:
         outlier_edges = 0
         for edge in graph.iterEdges():
@@ -89,8 +117,49 @@ def get_graph_stats(graph, outlier_nodes, stage, node_mapping):
     cc.run()
     stats[f'Num_connected_components_{stage}'] = cc.numberOfComponents()
     stats[f'Size_connected_components_{stage}'] = cc.getComponentSizes()
+
+    #Computing participation coefficients!
+    print("Started computing participation coefficients! ")
+    participation_coeffs = {}
+    outlier_nodes_set = set(outlier_nodes)
+    print("Difference in sets : ", len(mapped_outlier_nodes - outlier_nodes_set))
+    clustered_participation_coeffs = {}
+    outlier_participation_coeffs = {}
+    for node,participation in participation_dict.items():
+        deg_of_node = sum(list(participation.values()))
+        coeff = 1
+        if deg_of_node > 0 :
+            # participation_values = [participation_value for key, participation_value in participation.items() if key != -1]
+            coeff -= np.sum([(deg_i/deg_of_node)**2 for deg_i in list(participation.values())])
+
+        participation_coeffs[node] = coeff
+
+        if node in outlier_nodes_set:
+            outlier_participation_coeffs[node] = coeff
+        else:
+            clustered_participation_coeffs[node] = coeff
+
+    # print(len(outlier_participation_coeffs), len(clustered_participation_coeffs), len(participation_coeffs))
+    outlier_coeffs = list(outlier_participation_coeffs.values())
+    outlier_coeff_stats = []
+    if len(outlier_coeffs)>0:
+        outlier_coeff_stats = [np.min(outlier_coeffs),np.percentile(outlier_coeffs, 25),np.median(outlier_coeffs),np.percentile(outlier_coeffs, 75),np.max(outlier_coeffs), np.average(outlier_coeffs)]
+    
+    clustered_coeffs = list(clustered_participation_coeffs.values())
+    clustered_coeff_stats = [np.min(clustered_coeffs),np.percentile(clustered_coeffs, 25),np.median(clustered_coeffs),np.percentile(clustered_coeffs, 75),np.max(clustered_coeffs), np.average(clustered_coeffs)]
+
+    coeffs = list(participation_coeffs.values())
+    coeffs_dist_stats = [np.min(coeffs),np.percentile(coeffs, 25),np.median(coeffs),np.percentile(coeffs, 75),np.max(coeffs), np.average(coeffs)]
+    
+    stats[f'participationCoeff_dist_{stage}_(#min,q1,median,q3,max,average)'] = [round(num, 2) for num in coeffs_dist_stats]
+    if(len(outlier_coeff_stats)>0):
+        stats[f'outlierParticipationCoeff_dist_{stage}_(#min,q1,median,q3,max,average)'] = [round(num, 2) for num in outlier_coeff_stats]
+    stats[f'clusteredParticipationCoeff_dist_{stage}_(#min,q1,median,q3,max,average)'] = [round(num, 2) for num in clustered_coeff_stats]
+    
+    print("Completed computing participation coefficients!")
+
     stats_df = pd.DataFrame.from_dict(stats, orient='index')
-    return stats_df, fig
+    return stats_df, fig, participation_coeffs,participation_dict
 
 def read_graph(filepath):
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)
@@ -98,10 +167,35 @@ def read_graph(filepath):
     node_mapping = edgelist_reader.getNodeMap()
     return nk_graph, node_mapping
 
-def main(filepath, outlier_nodes, stage):
+def read_clustering(filepath):
+    cluster_df = pd.read_csv(filepath, sep="\t", header=None, names=["node_id", "cluster_name"])
+    unique_values = cluster_df["cluster_name"].unique()
+    value_map = {value: idx for idx, value in enumerate(unique_values)}
+    cluster_df['cluster_id'] = cluster_df['cluster_name'].map(value_map)
+    return cluster_df[['node_id', 'cluster_id']]
+
+
+def main(filepath, outlier_nodes, stage, clustering_filepath, clustering_dict):
     graph, node_mapping = read_graph(filepath)
-    stats_df, fig = get_graph_stats(graph, outlier_nodes, stage, node_mapping)
-    return stats_df, fig
+    cluster_df = pd.DataFrame()
+    if len(clustering_filepath)>1:
+        cluster_df = read_clustering(clustering_filepath)
+        clustering_dict = dict(zip(cluster_df['node_id'], cluster_df['cluster_id']))
+    if (len(outlier_nodes)==0 and len(clustering_dict.keys())>0):
+        print("Getting outlier nodes from clustering!")
+        node_mapping_reversed = {v: int(k) for k, v in node_mapping.items()}
+        clustered_nodes_id_org = cluster_df['node_id'].to_numpy()
+        nodes_set = set()
+        for u in graph.iterNodes():
+            nodes_set.add(node_mapping_reversed.get(u))
+        unclustered_nodes = nodes_set.difference(clustered_nodes_id_org)
+        outlier_nodes_list = list(outlier_nodes)
+        outlier_nodes_list.extend(unclustered_nodes)
+        outlier_nodes = set(outlier_nodes_list)
+        print("Number of outlier nodes found : ", len(outlier_nodes))
+
+    stats_df, fig, participation_coeffs,participation_dict = get_graph_stats(graph, outlier_nodes, stage, node_mapping, clustering_dict)
+    return stats_df, fig, participation_coeffs,participation_dict
 
 if __name__ == "__main__":
     main()

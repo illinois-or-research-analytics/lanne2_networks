@@ -158,6 +158,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info("Reading graph clustering:")
         start_time = time.time()
         cluster_df = read_clustering(cluster_input)
+        clustering_dict = dict(zip(cluster_df['node_id'], cluster_df['cluster_id']))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
         logging.info("Assigning all unclustered nodes to a new cluster")
@@ -182,11 +183,27 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         cluster_df = cluster_df.reset_index()
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
-        logging.info("Statistics of read graph:")
+        # logging.info("Statistics of read graph:")
+        # start_time = time.time()
+        # stats_df_G, fig, participation_coeffs_G ,participation_dict_G = stats.main(edge_input, unclustered_nodes, 'original_input_graph', "", clustering_dict)
+        # print(stats_df_G)
+        # fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        logging.info("Edges calculation of read graph:")
+        clustered_nodes_id_org_set = set(clustered_nodes_id_org)
         start_time = time.time()
-        stats_df_G, fig = stats.main(edge_input, unclustered_nodes, 'original_input_graph')
-        print(stats_df_G)
-        fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
+        clustered_edges_org = 0
+        outlier_cluster_edges_org = 0
+        outlier_edges_org = 0
+        for edge in G.iterEdges():
+            source = node_mapping_reversed.get(min(edge[0],edge[1]))
+            target = node_mapping_reversed.get(max(edge[0],edge[1]))
+            if source in clustered_nodes_id_org_set and target in clustered_nodes_id_org_set:
+                clustered_edges_org += 1
+            elif source in clustered_nodes_id_org_set or target in clustered_nodes_id_org_set:
+                outlier_cluster_edges_org += 1
+            else:
+                outlier_edges_org += 1
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Getting edge probs matrix for G")
         start_time = time.time()
@@ -205,22 +222,45 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         start_time = time.time()
         N_edge_list = set()
         node_idx_set = cluster_df['node_id'].tolist()
+        N_self_loops = set()
+        cluster_edges = 0
+        outlier_edges = 0
+        outlier_cluster_edges = 0
         for edge in N.get_edges():
-            source = node_idx_set[edge[0]]
-            target = node_idx_set[edge[1]]
+            source = node_idx_set[min(edge[0],edge[1])]
+            target = node_idx_set[max(edge[1], edge[0])]
+            if (source==target):
+                N_self_loops.add((source, target))
             N_edge_list.add((source, target))
+            if(source != target):
+                if source in unclustered_nodes and target in unclustered_nodes:
+                    outlier_edges += 1
+                elif source in unclustered_nodes or target in unclustered_nodes:
+                    outlier_cluster_edges += 1
+                else:
+                    cluster_edges += 1
+
         save_generated_graph(N_edge_list, out_edge_file)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After saving N graph edges")
-        logging.info("Statistics of generated graph N:")
-        start_time = time.time()
-        stats_df_N, fig = stats.main(out_edge_file, unclustered_nodes, 'N')
-        print(stats_df_N)
-        fig.savefig(output_dir+f"/{net_name}_N_degree_distribution.png")
-        combined_df = pd.concat([stats_df_G, stats_df_N])
-        print(combined_df)
-        combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        # logging.info("Statistics of generated graph N:")
+        # start_time = time.time()
+        # stats_df_N, fig,participation_coeffs_N,participation_dict_N = stats.main(out_edge_file, unclustered_nodes, 'N',"",clustering_dict)
+        # print(stats_df_N)
+        # fig.savefig(output_dir+f"/{net_name}_N_degree_distribution.png")
+        # combined_df = pd.concat([stats_df_G, stats_df_N])
+        # combined_df = combined_df.reset_index()
+        # combined_df.columns = ['Metric','Stat']
+        # combined_df.loc[len(combined_df.index)] = ['Num_of_clustered_nodes', len(clustering_dict.keys())]
+        # combined_df.loc[len(combined_df.index)] = ['Num_of_clustered_edges', clustered_edges_org]
+        # combined_df.loc[len(combined_df.index)] = ['Num_of_outlier_non_outlier_edges', outlier_cluster_edges_org]
+        # combined_df.loc[len(combined_df.index)] = ['generated_Num_of_clustered_nodes', len(clustering_dict.keys())]
+        # combined_df.loc[len(combined_df.index)] = ['Generated_clustered_num_edges', cluster_edges]
+        # combined_df.loc[len(combined_df.index)] = ['Generated_outlier_non_outlier_edges', outlier_cluster_edges]
+        # combined_df.loc[len(combined_df.index)] = ['Generated_outlier_outlier_edges', outlier_edges]
+        # print(combined_df)
+        # combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After N graph computation!!")
         logging.info(f"Total Time taken: {round(time.time() - job_start_time, 3)} seconds")
         log_cpu_ram_usage("Usage statistics after job completion!")
