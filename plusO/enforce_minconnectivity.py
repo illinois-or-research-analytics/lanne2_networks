@@ -326,7 +326,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
             for i in range(len(partitions)):
                 if i != largest_index:
                     part_nodes_list = list(partitions[i])
-                    node_idxs = np.random.choice(len(large_partition), min_cut_required, replace=False)
+                    node_idxs = np.random.choice(len(large_partition), min_cut_required)
                     part_node_idx = np.random.choice(len(part_nodes_list), min_cut_required)
                     for j in range(min_cut_required):
                         n1 = int(part_nodes_list[part_node_idx[j]])
@@ -335,6 +335,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
                         conn_new_edges.add((n1,n2))
                         cluster_new_edges.append((n1,n2))
                         total_edges += 1
+                        large_partition.extend(part_nodes_list)
 
         print("Number of edges added : ", total_edges, len(conn_new_edges))
 
