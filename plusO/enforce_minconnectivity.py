@@ -392,7 +392,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
                 # print(f"{cluster_id} length of partitions" , len(partitions))
                 # print(f"{cluster_id} - partitions : ",partitions)
                 partition = partitions[0]
-                if len(partition)>2:
+                if len(partition)>1:
                     partition_sub_graph = nk.graphtools.subgraphFromNodes(G2,partition)
                     part_sub_G = PyGraph(partition, list(partition_sub_graph.iterEdges()))
                     part_mincut_result = part_sub_G.mincut("cactus", "bqueue", True)
