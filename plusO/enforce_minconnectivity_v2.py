@@ -151,7 +151,8 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     cluster_input: str = typer.Option(..., "--cluster_filepath", "-c"),
     net_name: str = typer.Option(..., "--net_name", "-m"),
     cluster_stats: str = typer.Option(..., "--cluster_stats", "-cs"),
-    out_edge_file: str = typer.Option("", "--out_edge_file", "-oe")):
+    out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
+    emp_edge_input: str = typer.Option(..., "--empirical_filepath", "-ef")):
 
     if out_edge_file == "":
         out_edge_file = f'SBM_subnetworks_minconnectivity_samples/{net_name}/SBM_MCS_mindeg_edge_list.tsv'
@@ -166,7 +167,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    log_path = f'FullNetworks_SBMMCS_samples/logs/SBM_enforce_minconnectivity_{net_name}.log'
+    log_path = f'SubNetworks_SBMMCS_samples_v2/logs/SBM_enforce_minconnectivity_{net_name}.log'
     log_dir = os.path.dirname(log_path)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -222,6 +223,16 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After reading clustering data!")
 
+        logging.info("Reading empirical graph...")
+        start_time = time.time()
+        emp_graph,emp_node_mapping = read_graph(emp_edge_input)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        print("Number of nodes in the empirical network : ", emp_graph.numberOfNodes())
+        print("Number of edges in the empirical network : ",emp_graph.numberOfEdges())
+        
+        log_cpu_ram_usage("After reading empirical graph!")
+
+
         logging.info("Getting clustered component of the network!")
         start_time = time.time()
         clustered_nodes = [node_mapping[v] for v in clustering_dict.keys()]
@@ -242,36 +253,89 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After computing G_c!")
         
+        logging.info("Finding nodes with available degrees")
+        start_time = time.time()
+        ## Find clustered nodes with degree less than expected
+        emp_degrees = dict()
+        sbm_degrees = dict()
+        available_node_degrees = dict()
+        for c_node in clustered_nodes: 
+            emp_degrees[c_node] = emp_graph.degree(c_node)
+            sbm_degrees[c_node] = graph.degree(c_node)
+            deg_diff = emp_degrees[c_node]-sbm_degrees[c_node]
+            if(deg_diff>0):
+                available_node_degrees[c_node] = deg_diff
+
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
+        ## Get all the nodes with available degrees
+        available_node_set = set(available_node_degrees.keys())
+        
         logging.info("Ensuring minimum degree")
         start_time = time.time()
         cluster_count = 0
         total_edges = 0
+        degree_corrected = 0
         new_edges = set()
+       
         for cluster_id in cluster_order:
-            nodes = list(cluster_node_mapping[cluster_id])
-            min_cut_required = int(cluster_stats_df[cluster_stats_df['cluster']==cluster_mapping_dict_reversed[cluster_id]]['connectivity'])
+            nodes = set(cluster_node_mapping[cluster_id])
+            available_c_nodes = available_node_set.intersection(nodes)
+            min_cut_required = int(cluster_stats_df[cluster_stats_df['cluster'] == cluster_mapping_dict_reversed[cluster_id]]['connectivity'])
+            
             for node in nodes:
+                neighbors = set(G_c.iterNeighbors(node))
+                neighbors.add(node)
+                available_non_neighbors = available_c_nodes - neighbors
                 node_deg = G_c.degree(node)
-                if G_c.degree(node)<min_cut_required:
-                    deg_diff  = min_cut_required - node_deg
-                    # total_edges += deg_diff
+                
+                if node_deg < min_cut_required:
+                    deg_diff = min_cut_required - node_deg
                     selected = set()
                     selected.add(node)
-                    while deg_diff>0:
-                        idx = np.random.choice(len(nodes), 1)
-                        edge_end = nodes[idx[0]]
-                        if edge_end not in selected and edge_end not in set(G_c.iterNeighbors(node)):
+                    
+                    while deg_diff > 0:
+                        edge_end = None
+                        idx_available = False
+                        if len(available_non_neighbors)>0:
+                            edge_end = np.random.choice(list(available_non_neighbors))
+                            idx_available = True
+                        else:
+                            edge_end = np.random.choice(list(nodes))
+                        
+                        if edge_end not in selected and edge_end not in neighbors:
                             G_c.addEdge(node, edge_end)
                             selected.add(edge_end)
                             deg_diff -= 1
                             total_edges += 1
-                            new_edges.add((node,edge_end))
+                            new_edges.add((node, edge_end))
+                            neighbors.add(edge_end)
+                            
+                            ## reduce available degree and remove if node is exhausted
+                            if idx_available:
+                                degree_corrected += 1
+                                available_node_degrees[edge_end] -= 1
+                                available_non_neighbors.remove(edge_end)
+                                if available_node_degrees[edge_end] == 0:
+                                    available_c_nodes.remove(edge_end)
+                                    available_node_set.remove(edge_end)
+                                    del available_node_degrees[edge_end]
+
+                    if node in available_node_degrees.keys():
+                        available_node_degrees[node] -= deg_diff
+                        if available_node_degrees[node] <= 0:
+                                    available_c_nodes.discard(node)
+                                    available_node_set.discard(node)
+                                    del available_node_degrees[node]
 
             cluster_count += 1
-            if cluster_count%10000 ==0:
-                print("Number of clusters processed : ", cluster_count)
+            if cluster_count % 10000 == 0:
+                print("Number of clusters processed: ", cluster_count)
         print("Number of edges added : ", total_edges, len(new_edges))
+        if total_edges > 0:
+            print("Number and percentage of degree correction edges added out of total edges added : ", degree_corrected, (degree_corrected/total_edges * 100))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
         logging.info("Saving new graph! - G1")
         start_time = time.time()
         new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in new_edges]
@@ -302,14 +366,17 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         start_time = time.time()
         conn_new_edges = set()
         total_edges = 0
+        degree_corrected = 0
         disconnected_clusters = cluster_stats_G1[cluster_stats_G1['connectivity']==0]['cluster']
 
         print("Number of disconnected clusters after step - 1 of post processing:  ", len(disconnected_clusters))
 
         for cluster_id in disconnected_clusters:
             # cluster_new_edges = []
-            nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
-            sub_graph = nk.graphtools.subgraphFromNodes(G1,nodes)
+            nodes = set(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
+            available_c_nodes = available_node_set.intersection(nodes)
+            # nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
+            sub_graph = nk.graphtools.subgraphFromNodes(G1,list(nodes))
             cluster_nodes = list(sub_graph.iterNodes())
             min_cut_required = int(cluster_stats_df[cluster_stats_df['cluster']==cluster_id]['connectivity'])
             cluster_edges = list(sub_graph.iterEdges())
@@ -318,30 +385,65 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
 
             partitions = mincut_result[:-1]
             cut_size = mincut_result[-1]
-            # print("Partition lengths : ", [len(p) for p in partitions])
-            req_edges = min_cut_required-cut_size
             largest_index, large_partition = max(enumerate(partitions), key=lambda x: len(x[1]))
             for i in range(len(partitions)):
                 if i != largest_index:
                     part_nodes_list = list(partitions[i])
-                    node_idxs = np.random.choice(len(large_partition), min_cut_required, replace=False)
-                    part_node_idx = np.random.choice(len(part_nodes_list), min_cut_required)
-                    for j in range(min_cut_required):
-                        n1 = int(part_nodes_list[part_node_idx[j]])
-                        n2 = int(large_partition[node_idxs[j]])
-                        is_neighbor = True
-                        while is_neighbor:
-                            if n2 in sub_graph.iterNeighbors(node):
-                                n2 = large_partition[np.random.choice(len(large_partition), 1)[0]]
-                            else:
-                                is_neighbor = False
-                        sub_graph.addEdge(n1,n2)
-                        conn_new_edges.add((n1,n2))
-                        # cluster_new_edges.append((n1,n2))
-                        total_edges += 1
-                        large_partition.extend(part_nodes_list)
+                    k = min_cut_required
+                    while k>0:
+                        available_part_nodes = available_c_nodes.intersection(set(part_nodes_list))
+                        available_large_part_nodes = available_c_nodes.intersection(set(large_partition))
+                        edge_end = None
+                        part_edge_end = None
+                        large_idx_available = False
+                        part_idx_available = False
+                        if len(available_part_nodes)>0:
+                            part_edge_end = np.random.choice(list(available_part_nodes))
+                            part_idx_available = True                
+                        else:
+                            part_edge_end = np.random.choice(part_nodes_list)
+
+                        # remove neighbors of part_edge_end from available_large_part_nodes
+                        for neighbor in set(sub_graph.iterNeighbors(part_edge_end)):
+                            available_large_part_nodes.discard(neighbor) 
+
+                        if len(available_large_part_nodes)>0:
+                            edge_end = np.random.choice(list(available_large_part_nodes))
+                            large_idx_available = True 
+                        else:
+                            edge_end = np.random.choice(large_partition)
+                
+                        if edge_end not in set(sub_graph.iterNeighbors(part_edge_end)):
+                            sub_graph.addEdge(part_edge_end,edge_end)
+                            conn_new_edges.add((part_edge_end,edge_end))
+                            total_edges += 1
+
+                            if large_idx_available:
+                                available_node_degrees[edge_end] -= 1
+                                if available_node_degrees[edge_end] == 0:
+                                    available_c_nodes.remove(edge_end)
+                                    available_node_set.remove(edge_end)
+                                    del available_node_degrees[edge_end]
+
+                            if part_idx_available:
+                                available_node_degrees[part_edge_end] -= 1
+                                if available_node_degrees[part_edge_end] == 0:
+                                    available_c_nodes.remove(part_edge_end)
+                                    available_node_set.remove(part_edge_end)
+                                    del available_node_degrees[part_edge_end]
+                            
+                            if part_idx_available or large_idx_available:
+                                degree_corrected += 1
+                            
+                            k -= 1
+                        else:
+                            print(cluster_id, edge_end, part_edge_end, available_part_nodes, available_large_part_nodes, part_idx_available, large_idx_available, set(sub_graph.iterNeighbors(part_edge_end)), large_partition, part_nodes_list, partitions)
+
+                    large_partition.extend(part_nodes_list)
 
         print("Number of edges added : ", total_edges, len(conn_new_edges))
+        if total_edges > 0:
+            print("Number of degree corrected edges added out of total edges : ", degree_corrected, (degree_corrected/total_edges * 100))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Adding new edges to graph!")
         start_time = time.time()
@@ -374,68 +476,106 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
 
         logging.info("Enforcing minconnectivity in connected clusters of G2!")
         start_time = time.time()
-        poor_connected_clusters_G2 = cluster_stats_G2[cluster_stats_G2['connectivity_normalized_log10(n)']<=1]['cluster']
+        # Convert the 'connectivity' columns to integers
+        cluster_stats_G2['connectivity'] = cluster_stats_G2['connectivity'].astype(int)
+        cluster_stats_df['connectivity'] = cluster_stats_df['connectivity'].astype(int)
+        merged_cluster_stats = pd.merge(
+            cluster_stats_G2[['cluster', 'connectivity']], 
+            cluster_stats_df[['cluster', 'connectivity']], 
+            on='cluster', 
+            suffixes=('_G2', '_df')
+        )
+
+        # Select clusters where connectivity in G2 is less than in cluster_stats_df
+        poor_connected_clusters_G2 = merged_cluster_stats[
+            merged_cluster_stats['connectivity_G2'] < merged_cluster_stats['connectivity_df']]['cluster']
+        # poor_connected_clusters_G2 = cluster_stats_G2[cluster_stats_G2['connectivity_normalized_log10(n)']<=1]['cluster']
         print("Number of poorly connected clusters after step-2 of processing:  ", len(poor_connected_clusters_G2))
         mincut_edges = []
         clusters_processed = 0
+        degree_corrected = 0
         for cluster_id in poor_connected_clusters_G2:
-            all_partitions = []
-            nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
-            sub_graph = nk.graphtools.subgraphFromNodes(G2,nodes)
-            cluster_nodes = list(sub_graph.iterNodes())
+            is_mincut_statisfied = False
             min_cut_required = int(cluster_stats_df[cluster_stats_df['cluster']==cluster_id]['connectivity'])
-            cluster_edges = list(sub_graph.iterEdges())
-            sub_G = PyGraph(cluster_nodes, cluster_edges)
-            mincut_result = sub_G.mincut("cactus", "bqueue", True)
+            nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
+            available_c_nodes = available_node_set.intersection(set(nodes))
+            while is_mincut_statisfied==False:
+                sub_graph = nk.graphtools.subgraphFromNodes(G2,nodes)
+                cluster_nodes = list(sub_graph.iterNodes())
+                cluster_edges = list(sub_graph.iterEdges())
+                sub_G = PyGraph(cluster_nodes, cluster_edges)
+                mincut_result = sub_G.mincut("cactus", "bqueue", True)
 
-            partitions = list(mincut_result[:-1])
-            cut_size = mincut_result[-1]
-            # print("Partition lengths : ", [len(p) for p in partitions])
-            # req_edges = min_cut_required-cut_size
-            # partitions = sorted(partitions, key=len, reverse=True)
-            while len(partitions)>=1:
-                # print(f"{cluster_id} length of partitions" , len(partitions))
-                # print(f"{cluster_id} - partitions : ",partitions)
-                partition = partitions[0]
-                if len(partition)>1:
-                    partition_sub_graph = nk.graphtools.subgraphFromNodes(G2,partition)
-                    part_sub_G = PyGraph(partition, list(partition_sub_graph.iterEdges()))
-                    part_mincut_result = part_sub_G.mincut("cactus", "bqueue", True)
-                    part_cut_size = part_mincut_result[-1]
-                    if part_cut_size>= min_cut_required:
-                        all_partitions.append(partition)
-                    else:
-                        partitions.extend(part_mincut_result[:-1])
+                heavy_part = mincut_result[0]
+                light_part = mincut_result[1]
+                cut_size = mincut_result[2]
+                if cut_size >= min_cut_required:
+                    is_mincut_statisfied = True
                 else:
-                    all_partitions.append(partition)
-                # print(f"{cluster_id} - All partitions : ",all_partitions)
-                partitions.remove(partition)
-                # print(f"{cluster_id} length of partitions" , len(partitions))
-            # print(f"{cluster_id}  processed, ", len(all_partitions))
+                    req_edges = min_cut_required - cut_size
+                    k = req_edges
+                    while k>0:
+                        available_heavy_part_nodes = available_c_nodes.intersection(set(heavy_part))
+                        available_light_part_nodes = available_c_nodes.intersection(set(light_part))
+                        edge_end_1 = None
+                        edge_end_2 = None
+                        heavy_idx_available = False
+                        light_idx_available = False
 
-            all_partitions = sorted(all_partitions, key=len, reverse=True)
-            largest_part = all_partitions[0]
-            for j in range(1, len(all_partitions)):
-                node_idx = np.random.choice(len(largest_part), min_cut_required, replace=False)
-                part_idx = np.random.choice(len(all_partitions[j]), min_cut_required)
-                for k in range(min_cut_required):
-                    n1 = largest_part[node_idx[k]]
-                    n2 = all_partitions[j][part_idx[k]]
-                    G2.addEdge(n1,n2)
-                    mincut_edges.append((n1,n2))
+                        if len(available_light_part_nodes)>0:
+                            edge_end_2 = np.random.choice(list(available_light_part_nodes))
+                            light_idx_available = True
+                        else:
+                            edge_end_2 = np.random.choice(light_part)
+                        
+                        #Remove neighbors of edge_end_2 from available_heavy_part_nodes
+                        for neighbor in set(sub_graph.iterNeighbors(edge_end_2)):
+                            available_heavy_part_nodes.discard(neighbor)
+
+                        if len(available_heavy_part_nodes)>0:
+                            edge_end_1 = np.random.choice(list(available_heavy_part_nodes))
+                            heavy_idx_available = True
+                        else:
+                            edge_end_1 = np.random.choice(heavy_part)
+
+                        if edge_end_1 not in  set(sub_graph.iterNeighbors(edge_end_2)):
+                            sub_graph.addEdge(edge_end_1, edge_end_2)
+                            G2.addEdge(edge_end_1, edge_end_2)
+                            mincut_edges.append((edge_end_1,edge_end_2))
+
+                            if heavy_idx_available:
+                                available_node_degrees[edge_end_1] -= 1
+                                if available_node_degrees[edge_end_1] == 0:
+                                    available_c_nodes.remove(edge_end_1)
+                                    available_node_set.remove(edge_end_1)
+                                    del available_node_degrees[edge_end_1]
+
+                            if light_idx_available:
+                                available_node_degrees[edge_end_2] -= 1
+                                if available_node_degrees[edge_end_2] == 0:
+                                    available_c_nodes.remove(edge_end_2)
+                                    available_node_set.remove(edge_end_2)
+                                    del available_node_degrees[edge_end_2]
+                            
+                            if light_idx_available or heavy_idx_available:
+                                degree_corrected += 1
+
+                            k -= 1
             
             clusters_processed += 1
             if(clusters_processed%100)==0:
                 print("Clusters processed : ",clusters_processed)
 
         print("Total number of mincut edges added : ", len(mincut_edges))
+        if len(mincut_edges)>0:
+            print("Total number of degree corrected edges added out of total edges : ", degree_corrected, (degree_corrected/len(mincut_edges) * 100))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
-        logging.info("Adding new edges to graph - G3!")
-        start_time = time.time()
-        G3 = add_edges(G2,mincut_edges)
-        print(G2.numberOfEdges(), G3.numberOfEdges())
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        # logging.info("Adding new edges to graph - G3!")
+        # start_time = time.time()
+        # G3 = add_edges(G2,mincut_edges)
+        # print(G2.numberOfEdges(), G3.numberOfEdges())
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
         logging.info("Saving new graph! G3")
         start_time = time.time()
@@ -504,6 +644,10 @@ if __name__ == "__main__":
     parser.add_argument(
         '-oe', metavar='out_edge_file', type=str, required=False,
         help='output edgelist path'
+        )
+    parser.add_argument(
+        '-ef', metavar='emp_edge_input', type=str, required=True,
+        help='empirical network edgelist path'
         )
     
     
