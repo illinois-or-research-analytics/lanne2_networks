@@ -15,6 +15,8 @@ from typing import Dict, List
 from hm01.graph import Graph, IntangibleSubgraph
 from hm01.mincut import viecut
 import csv
+import heapq
+
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -162,12 +164,13 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     out_edge_file1 = out_edge_file.replace('SBM_mcs','SBM_mcs_mindeg')
     out_edge_file2 = out_edge_file.replace('SBM_mcs','SBM_mcs_connected')
     out_edge_file3 = out_edge_file
+    out_edge_file4 = out_edge_file.replace("SBM_mcs","SBM_mcs_plusEdges")
     
     output_dir = os.path.dirname(out_edge_file1)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    log_path = f'SubNetworks_SBMMCS_samples_v2/logs/SBM_enforce_minconnectivity_{net_name}.log'
+    log_path = f'SubNetworks_SBMMCS_samples_v3/logs/SBM_enforce_minconnectivity_{net_name}.log'
     log_dir = os.path.dirname(log_path)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -259,12 +262,23 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         emp_degrees = dict()
         sbm_degrees = dict()
         available_node_degrees = dict()
-        for c_node in clustered_nodes: 
-            emp_degrees[c_node] = emp_graph.degree(c_node)
-            sbm_degrees[c_node] = graph.degree(c_node)
+        ## Wrong calculation
+        # for c_node in clustered_nodes: 
+        #     emp_degrees[c_node] = emp_graph.degree(c_node)
+        #     sbm_degrees[c_node] = graph.degree(c_node)
+        #     deg_diff = emp_degrees[c_node]-sbm_degrees[c_node]
+        #     if(deg_diff>0):
+        #         available_node_degrees[c_node] = deg_diff
+        
+        ## Correction
+        for c_node in clustering_dict.keys(): 
+            emp_node = emp_node_mapping[c_node]
+            syn_node = node_mapping[c_node]
+            emp_degrees[c_node] = emp_graph.degree(emp_node)
+            sbm_degrees[c_node] = graph.degree(syn_node)
             deg_diff = emp_degrees[c_node]-sbm_degrees[c_node]
             if(deg_diff>0):
-                available_node_degrees[c_node] = deg_diff
+                available_node_degrees[syn_node] = deg_diff
 
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
@@ -436,8 +450,8 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
                                 degree_corrected += 1
                             
                             k -= 1
-                        else:
-                            print(cluster_id, edge_end, part_edge_end, available_part_nodes, available_large_part_nodes, part_idx_available, large_idx_available, set(sub_graph.iterNeighbors(part_edge_end)), large_partition, part_nodes_list, partitions)
+                        # else:
+                        #     print(cluster_id, edge_end, part_edge_end, available_part_nodes, available_large_part_nodes, part_idx_available, large_idx_available, set(sub_graph.iterNeighbors(part_edge_end)), large_partition, part_nodes_list, partitions)
 
                     large_partition.extend(part_nodes_list)
 
@@ -579,6 +593,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
 
         logging.info("Saving new graph! G3")
         start_time = time.time()
+        # mincut_edges.extend(degree_edges)
         mincut_new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in mincut_edges]
         copy_and_append(out_edge_file2, out_edge_file3, mincut_new_edges_ids)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
@@ -598,21 +613,177 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After cluster stats of G2!")
 
-        logging.info("Deleting Stage 1 and 2 files!")
-        start_time = time.time()
-        if os.path.isfile(out_edge_file1):
-                os.remove(out_edge_file1)
-                print(f"Deleted: {out_edge_file1}")
-        else:
-            print(f"Skipped (not a file): {out_edge_file1}")
+        # ## Stage 4: 
+        # ## Testing Stage 4 - trial 1
+        # logging.info("Adding Remaining edges to final graph!")
+        # print("Current number of edges in graph : ", G2.numberOfEdges())
+        # start_time = time.time()
+        # degree_edges = []
+        # nodes_processed = 0
+        # degree_corrected = 0
+        # print("Number of available nodes : ", len(available_node_degrees.keys()))
+        
+        # # Convert available_node_degrees to a max-heap
+        # available_node_degrees = {node: degree for node, degree in available_node_degrees.items() if degree > 0}
+        # max_heap = [(-degree, node) for node, degree in available_node_degrees.items()]
+        # heapq.heapify(max_heap)
 
-        if os.path.isfile(out_edge_file2):
-                os.remove(out_edge_file2)
-                print(f"Deleted: {out_edge_file2}")
-        else:
-            print(f"Skipped (not a file): {out_edge_file2}")
+        # while max_heap:
+        #     _, available_c_node = heapq.heappop(max_heap)
+        #     if available_c_node not in available_node_degrees:
+        #         continue
+
+        #     cluster_id = cluster_mapping_dict_reversed[clustering_dict[node_mapping_reversed[available_c_node]]]
+        #     nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
+        #     available_c_nodes = available_node_set.intersection(set(nodes))
+        #     neighbors = set(G2.iterNeighbors(available_c_node))
+        #     neighbors.add(available_c_node)
+        #     non_neighbors = set(nodes) - neighbors
+        #     available_c_non_neighbors = available_c_nodes - neighbors
+        #     available_other_non_neighbors = available_node_set - available_c_nodes
+        #     available_other_non_neighbors = available_other_non_neighbors - neighbors 
+
+        #     avail_degree = available_node_degrees[available_c_node]
+        #     k = avail_degree
+
+        #     while k > 0:
+        #         c_idx_available = False
+        #         non_c_idx_available = False
+        #         if available_c_non_neighbors:
+        #             # edge_end = np.random.choice(list(available_c_non_neighbors))
+        #             edge_end = available_c_non_neighbors.pop()
+        #             c_idx_available = True
+        #             # available_c_non_neighbors.add(edge_end)
+        #         elif available_other_non_neighbors:
+        #             # edge_end = np.random.choice(list(available_other_non_neighbors))
+        #             edge_end = available_other_non_neighbors.pop()
+        #             non_c_idx_available = True
+        #             # available_other_non_neighbors.add(edge_end)
+        #         else:
+        #             break
+                
+        #         G2.addEdge(available_c_node, edge_end)
+        #         degree_edges.append((available_c_node, edge_end))
+
+        #         if c_idx_available:
+        #             available_node_degrees[edge_end] -= 1
+        #             if available_node_degrees[edge_end] == 0:
+        #                 available_c_nodes.remove(edge_end)
+        #                 available_node_set.remove(edge_end)
+        #                 del available_node_degrees[edge_end]
+        #                 # available_c_non_neighbors.remove(edge_end)
+        #             degree_corrected += 1
+        #         elif non_c_idx_available:
+        #             available_node_degrees[edge_end] -= 1
+        #             if available_node_degrees[edge_end] == 0:
+        #                 available_node_set.remove(edge_end)
+        #                 del available_node_degrees[edge_end]
+        #                 # available_other_non_neighbors.remove(edge_end)
+        #             degree_corrected += 1
+
+        #         k -= 1
+
+        #     del available_node_degrees[available_c_node]
+        #     available_node_set.remove(available_c_node)
+        #     nodes_processed += 1
+        #     if nodes_processed % 1000 == 0:
+        #         print("Nodes processed and available nodes : ", nodes_processed,len(available_node_degrees.keys()))
+
+        # print("Total number of edges after addition: ", G2.numberOfEdges())
+        # print("Total number of edges in empirical network: ", emp_graph.numberOfEdges())
+        # print("Total number of degree edges added: ", len(degree_edges))
+        # print("Number of available node degrees: ", available_node_degrees)
+        # if degree_edges:
+        #     print("Total number of degree corrected edges added out of total edges: ", degree_corrected, (degree_corrected / len(degree_edges) * 100))
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
+        # logging.info("Saving new graph! G4")
+        # start_time = time.time()
+        # # mincut_edges.extend(degree_edges)
+        # mincut_new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in degree_edges]
+        # copy_and_append(out_edge_file3, out_edge_file4, mincut_new_edges_ids)
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
+        # ## End testing 
+
+        ## Testing Stage 4 - trial 2
+        logging.info("Adding Remaining edges to final graph!")
+        print("Current number of edges in graph : ", G2.numberOfEdges())
+        start_time = time.time()
+        degree_edges = set()
+        nodes_processed = 0
+        degree_corrected = 0
+        print("Number of available nodes : ", len(available_node_degrees.keys()))
+        
+        # Convert available_node_degrees to a max-heap
+        available_node_degrees = {node: degree for node, degree in available_node_degrees.items() if degree > 0}
+        max_heap = [(-degree, node) for node, degree in available_node_degrees.items()]
+        heapq.heapify(max_heap)
+
+        while max_heap:
+            _, available_c_node = heapq.heappop(max_heap)
+            if available_c_node not in available_node_degrees:
+                continue
+
+            neighbors = set(G2.iterNeighbors(available_c_node))
+            neighbors.add(available_c_node)
+
+            # available_non_neighbors =  available_node_set - neighbors
+            available_non_neighbors =  available_node_set.copy()
+            
+            for neighbor in neighbors:
+                available_non_neighbors.discard(neighbor)
+
+            avail_degree = available_node_degrees[available_c_node]
+            k = avail_degree
+            avail_k = min(k, len(available_non_neighbors))
+            for i in range(avail_k):
+                edge_end = available_non_neighbors.pop()
+                G2.addEdge(available_c_node, edge_end)
+                degree_edges.add((available_c_node, edge_end))
+                available_node_degrees[edge_end] -= 1
+                if available_node_degrees[edge_end] == 0:
+                    available_node_set.remove(edge_end)
+                    del available_node_degrees[edge_end]
+                degree_corrected += 1
+                    # avail_k -= 1
+
+            del available_node_degrees[available_c_node]
+            available_node_set.remove(available_c_node)
+            nodes_processed += 1
+            if nodes_processed % 1000 == 0:
+                print("Nodes processed and available nodes : ", nodes_processed,len(available_node_degrees.keys()))
+
+        print("Total number of edges after addition: ", G2.numberOfEdges())
+        print("Total number of edges in empirical network: ", emp_graph.numberOfEdges())
+        print("Total number of degree edges added: ", len(degree_edges))
+        print("Number of available node degrees: ", available_node_degrees)
+        if degree_edges:
+            print("Total number of degree corrected edges added out of total edges: ", degree_corrected, (degree_corrected / len(degree_edges) * 100))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        log_cpu_ram_usage("After deleting files!")
+
+        logging.info("Saving new graph! G4")
+        start_time = time.time()
+        degree_new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in degree_edges]
+        copy_and_append(out_edge_file3, out_edge_file4, degree_new_edges_ids)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        ## End testing 
+
+        # logging.info("Deleting Stage 1 and 2 files!")
+        # start_time = time.time()
+        # if os.path.isfile(out_edge_file1):
+        #         os.remove(out_edge_file1)
+        #         print(f"Deleted: {out_edge_file1}")
+        # else:
+        #     print(f"Skipped (not a file): {out_edge_file1}")
+
+        # if os.path.isfile(out_edge_file2):
+        #         os.remove(out_edge_file2)
+        #         print(f"Deleted: {out_edge_file2}")
+        # else:
+        #     print(f"Skipped (not a file): {out_edge_file2}")
+        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        # log_cpu_ram_usage("After deleting files!")
 
         logging.info(f"Total Time taken: {round(time.time() - job_start_time, 3)} seconds")
         log_cpu_ram_usage("Usage statistics after job completion!")
