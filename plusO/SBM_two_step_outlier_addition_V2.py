@@ -98,7 +98,12 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    logging.basicConfig(filename=f'SBM_twostep_outlier_addition_V2_samples/{net_name}/SBM_twostep_outlier_addition_V2_samples.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    log_path = os.path.join(output_dir, f'{net_name}.log')
+    log_dir = os.path.dirname(log_path)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
