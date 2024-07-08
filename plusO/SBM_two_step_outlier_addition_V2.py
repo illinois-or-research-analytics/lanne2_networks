@@ -281,23 +281,24 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         probs_N_o[0,0] = num_o_edges_within_o*2
         probs_N_o = probs_N_o.tocsr(copy=False)
         b = [0 for i in range(len(outlier_cluster_degree_seq))]
-        N_o = gt.generate_sbm(b, probs_N_o, out_degs=outlier_cluster_degree_seq, micro_ers=True, micro_degs=True)
-        N_o_num_nodes = N_o.num_vertices()
-        N_o_num_edges = N_o.num_edges()
-        print("Number of vertices in N_o : " , N_o_num_nodes, "Number of edges in N_o :" , N_o_num_edges)
+        if num_o_edges_within_o > 0:
+            N_o = gt.generate_sbm(b, probs_N_o, out_degs=outlier_cluster_degree_seq, micro_ers=True, micro_degs=True)
+            N_o_num_nodes = N_o.num_vertices()
+            N_o_num_edges = N_o.num_edges()
+            print("Number of vertices in N_o : " , N_o_num_nodes, "Number of edges in N_o :" , N_o_num_edges)
         
-        N_o_self_loops = set()
-        N_o_edges = set()
-        for o_edge in N_o.get_edges():
-            source = min(o_edge[0], o_edge[1])
-            target = max(o_edge[0], o_edge[1])
-            N_o_edges.add((source, target))
-            if (source==target):
-                N_o_self_loops.add((source, target))
-            N_edge_list.add((unclustered_nodes_list[source], unclustered_nodes_list[target]))
+            N_o_self_loops = set()
+            N_o_edges = set()
+            for o_edge in N_o.get_edges():
+                source = min(o_edge[0], o_edge[1])
+                target = max(o_edge[0], o_edge[1])
+                N_o_edges.add((source, target))
+                if (source==target):
+                    N_o_self_loops.add((source, target))
+                N_edge_list.add((unclustered_nodes_list[source], unclustered_nodes_list[target]))
 
-        print("Total number of outlier outlier edges added : ", (len(N_o_edges) - len(N_o_self_loops)))
-        print("Final number of edges in output graph : ",(len(N_edge_list) - len(self_loops) - len(N_o_self_loops)))
+            print("Total number of outlier outlier edges added : ", (len(N_o_edges) - len(N_o_self_loops)))
+            print("Final number of edges in output graph : ",(len(N_edge_list) - len(self_loops) - len(N_o_self_loops)))
 
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Saving generated graph edge list!")
