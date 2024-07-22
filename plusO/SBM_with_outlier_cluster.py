@@ -11,7 +11,7 @@ import logging
 import matplotlib.pyplot as plt
 import stats
 import networkit as nk
-import ng_eds as ng_eds
+import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
 from scipy.sparse import dok_matrix
 import psutil
 import traceback

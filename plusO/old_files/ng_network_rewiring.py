@@ -11,11 +11,11 @@ import logging
 import matplotlib.pyplot as plt
 import stats
 import networkit as nk
-import ng_eds as ng_eds
+import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
+from scipy.sparse import dok_matrix
+import psutil
 
 def read_graph(filepath):
-    # graph = gt.load_graph_from_csv(filepath, directed=False, csv_options={'delimiter': '\t'})
-    # return graph
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)
     nk_graph = edgelist_reader.read(filepath)
     node_mapping = edgelist_reader.getNodeMap()
@@ -46,71 +46,26 @@ def remove_edges(G, G_c):
         G_star.removeEdge(edge[0], edge[1])
     return G_star
 
-# def get_probs(G_c, node_mapping, cluster_df):
-#     numerical_to_string_mapping = {v: k for k, v in node_mapping.items()}
-#     cluster_ids = cluster_df['cluster_id'].unique()
-#     num_clusters = len(cluster_ids)
-#     probs = np.zeros((num_clusters, num_clusters))
-#     cluster_id_to_idx = {cluster_id: idx for idx, cluster_id in enumerate(cluster_ids)}
-#     for cluster_id in cluster_ids:
-#         cluster_nodes = cluster_df[cluster_df['cluster_id'] == cluster_id]['node_id'].values
-#         probs_row = np.zeros(num_clusters)
-#         for node in cluster_nodes:
-#             neighbors = [v for v in G_c.iterNeighbors(node_mapping.get(str(node)))]
-#             for neighbor in neighbors:
-#                 neighbor_cluster_id = cluster_df[cluster_df['node_id'] == int(numerical_to_string_mapping.get(neighbor))]['cluster_id'].values[0]
-#                 neighbor_cluster_idx = cluster_id_to_idx[neighbor_cluster_id]
-#                 probs_row[neighbor_cluster_idx] += 1
-#         cluster_idx = cluster_id_to_idx[cluster_id]
-#         probs[cluster_idx, :] = probs_row
-#     return probs
-
 def get_probs(G_c, node_mapping, cluster_df):
-    # Create a mapping from numerical node IDs to string IDs
-    numerical_to_string_mapping = {v: str(k) for k, v in node_mapping.items()}
-    
-    # Get unique cluster IDs and their counts
+    numerical_to_string_mapping = {v: int(k) for k, v in node_mapping.items()}
     cluster_ids, counts = np.unique(cluster_df['cluster_id'], return_counts=True)
     num_clusters = len(cluster_ids)
     
-    # Create a mapping from cluster ID to its index
-    cluster_id_to_idx = {cluster_id: idx for idx, cluster_id in enumerate(cluster_ids)}
-    
-    # Precompute the cluster nodes dictionary for faster lookup
-    cluster_nodes_dict = {}
-    for cluster_id, count in zip(cluster_ids, counts):
-        cluster_nodes_dict[cluster_id] = cluster_df[cluster_df['cluster_id'] == cluster_id]['node_id'].values
-    # Initialize the probabilities matrix
-    probs = np.zeros((num_clusters, num_clusters))
-    
-    # Iterate over cluster IDs
-    for cluster_id in cluster_ids:
-        # Get the index of the current cluster
-        cluster_idx = cluster_id_to_idx[cluster_id]
+    node_to_cluster_dict = cluster_df.set_index('node_id')['cluster_id'].to_dict()
+
+    probs = dok_matrix((num_clusters, num_clusters), dtype=int)
+    count = 0
+    for edge in G_c.iterEdges():
+        source = numerical_to_string_mapping.get(edge[0])
+        target = numerical_to_string_mapping.get(edge[1])
+        source_cluster_idx = node_to_cluster_dict.get(source)
+        target_cluster_idx = node_to_cluster_dict.get(target)
+
+        probs[source_cluster_idx, target_cluster_idx] += 1
+        probs[target_cluster_idx, source_cluster_idx ] += 1
         
-        # Get the nodes belonging to the current cluster
-        cluster_nodes = cluster_nodes_dict[cluster_id]
-        
-        
-        # Iterate over nodes in the current cluster
-        for node in cluster_nodes:
-            # Get the neighbors of the current node
-            neighbors = G_c.iterNeighbors(node_mapping[str(node)])
-            # print("Node : ", node, "Neighbors : ", neighbors)
-            
-            # Iterate over neighbors
-            for neighbor in neighbors:
-                # Get the cluster ID of the neighbor
-                neighbor_cluster_id = cluster_df[cluster_df['node_id'] == int(numerical_to_string_mapping.get(neighbor))]['cluster_id'].values[0]
-                # neighbor_cluster_id = cluster_df.at[int(numerical_to_string_mapping[neighbor]), 'cluster_id']
-                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id)
-                # Get the index of the neighbor's cluster
-                neighbor_cluster_idx = cluster_id_to_idx[neighbor_cluster_id]
-                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id, "neighbor_cluster_idx", neighbor_cluster_idx)
-                # Increment the corresponding entry in the probabilities matrix
-                probs[cluster_idx, neighbor_cluster_idx] += 1
-                # print("Node : ", node, "Neighbor : ", neighbor, "neighbor cluster_id" , neighbor_cluster_id, "neighbor_cluster_idx", neighbor_cluster_idx)
-    print(probs.trace()//2 + (probs.sum() - probs.trace())//2)
+    probs = probs.tocsr(copy=False)
+    print("Number of edges as per probs matrix: " , probs.trace()//2 + (probs.sum() - probs.trace())//2)
     return probs
 
 def get_degree_sequence(cluster_df, G_c, node_mapping,step, non_singleton_components):
@@ -131,7 +86,6 @@ def get_connected_components(G_star):
     cc.run()
     connected_components = cc.getComponents()
     non_singleton_components = [component for component in connected_components if len(component) > 1]
-    # print(cc.numberOfComponents(),len(connected_components))
     component_sizes = cc.getComponentSizes()
     return non_singleton_components
 
@@ -145,16 +99,9 @@ def rewire_non_singleton_components(non_singleton_components, deg_sequences, nod
         edge_list = []
         edges = generated_graph.get_edges()
         for edge in edges:
-            # print(edge, [component[edge[0]], component[edge[1]]])
-            edge_list.append([int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))])
+            edge_list.append((int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))))
         edge_lists.append(edge_list)
     return edge_lists
-
-# def get_N_c_edge_list(N_c, cluster_df, node_mapping):
-#     edge_list = []
-#     for edge in N_c.get_edges():
-#         edge_list.append([cluster_df.iloc[edge[0]]['node_id'], cluster_df.iloc[edge[1]]['node_id']])
-#     return edge_list
 
 def save_generated_graph(edges_list, out_edge_file):
     edge_df = pd.DataFrame(edges_list, columns=['source', 'target'])
@@ -212,21 +159,29 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     logging.getLogger('').addHandler(console)
     rewiring_start_time = time.time()
 
+    def log_cpu_ram_usage(step_name):
+        cpu_percent = psutil.cpu_percent()
+        ram_percent = psutil.virtual_memory().percent
+        disk_percent = psutil.disk_usage('/').percent
+        logging.info(f"Step: {step_name} | CPU Usage: {cpu_percent}% | RAM Usage: {ram_percent}% | Disk Usage: {disk_percent}")
+
+
     try:
+        log_cpu_ram_usage("Start")
         logging.info("Reading generated graph...")
         start_time = time.time()
         G,node_mapping = read_graph(edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After reading graph")
         logging.info("Statistics of read graph:")
-        # num_vertices, num_edges = get_graph_stats(G)
         stats_df_G, fig = stats.main(edge_input, [], 'original_input_graph')
         print(stats_df_G)
         fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
         logging.info("Reading graph clustering:")
         start_time = time.time()
         cluster_df = read_clustering(cluster_input)
-        # print(cluster_df.describe())
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After getting probs matrix")
         logging.info("Getting subgraph G_c")
         start_time = time.time()
         clustered_nodes = cluster_df['node_id'].unique()
@@ -244,6 +199,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_G_c)
         fig.savefig(output_dir+f"/{net_name}_G_c_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Removing cluster edges from G to get G* or G_star")
         start_time = time.time()
         Gstar = remove_edges(G, G_c)
@@ -252,6 +208,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
             Gstar_edge_list.append(edge)
         save_generated_graph(Gstar_edge_list, out_edge_file_Gstar)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Getting graph stats for G_star")
         start_time = time.time()
         num_nodes_Gstar, num_edges_Gstar = get_graph_stats(Gstar)
@@ -260,41 +217,45 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         fig.savefig(output_dir+f"/{net_name}_Gstar_degree_distribution.png")
         print("Number of nodes in G*: ", num_nodes_Gstar , "\t Number of edges in G*: ", num_edges_Gstar)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Getting edge probs matrix for G_c ")
         start_time = time.time()
         probs = get_probs(G_c, node_mapping, cluster_df)
-        print("Intra cluster edges : ", (np.sum(probs) - np.trace(probs))//2)
-        print("Inter cluster edges : ",np.trace(probs) // 2)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After getting probs matrix")
         logging.info("Generating Synthetic graph N_c with probs")
         start_time = time.time()
         b = cluster_df['cluster_id'].to_numpy()
         out_deg_seq = get_degree_sequence(cluster_df, G_c, node_mapping, 3, [])
-        # print(len(out_deg_seq), type(out_deg_seq))
         N_c = gt.generate_sbm(b, probs, out_degs=out_deg_seq, micro_ers=True, micro_degs=True)
         print("N_c graph statistics : ", N_c.num_vertices(), N_c.num_edges())
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Generating non-singleton components of G* ")
         start_time = time.time()
         non_singleton_components = get_connected_components(Gstar)
         print("Number of non singleton components : ", len(non_singleton_components))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Compute degree sequence for each of the non-singleton components!")
         start_time = time.time()
         deg_sequences = get_degree_sequence(cluster_df, Gstar, node_mapping,4, non_singleton_components)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
         logging.info("Performing ng-eds on each non-singleton component")
         start_time = time.time()
         N_i_edge_lists = rewire_non_singleton_components(non_singleton_components, deg_sequences, node_mapping)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After computing ng-eds for all singleton components")
         logging.info("Combining N_is and N_c edges")
         start_time = time.time()
-        N_c_edge_list = []
+        node_idx_set = cluster_df['node_id'].tolist()
+        N_c_edge_list = set()
         N_c_nodes_list = set()
         for edge in N_c.get_edges():
-            source = cluster_df.iloc[edge[0]]['node_id']
-            target = cluster_df.iloc[edge[1]]['node_id']
-            N_c_edge_list.append([source, target])
+            source = node_idx_set[edge[0]]
+            target = node_idx_set[edge[1]]
+            N_c_edge_list.add((source, target))
             N_c_nodes_list.add(source)
             N_c_nodes_list.add(target)
         print(len(N_c_nodes_list), len(N_c_edge_list))
@@ -305,9 +266,10 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_N_c)
         fig.savefig(output_dir+f"/{net_name}_N_c_step1_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        N_star_edges = []
+        log_cpu_ram_usage("After N_c graph generation and stats calculation")
+        N_star_edges = set()
         for Ni_edges in N_i_edge_lists:
-            N_star_edges = N_star_edges + Ni_edges
+            N_star_edges.update(Ni_edges)
         #Save N(G*) till here
         save_generated_graph(N_star_edges, out_edge_file_NGstar)
         logging.info("Statistics of generated graph NGstar:")
@@ -316,23 +278,18 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(stats_df_NGstar)
         fig.savefig(output_dir+f"/{net_name}_NGstar_step2_degree_distribution.png")
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After NGstar graph generation and stats calculation!")
 
-        N_star_edges = N_star_edges + N_c_edge_list
+        N_star_edges.update(N_c_edge_list)
         print("N_star_edges : " ,len(N_star_edges))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         logging.info("Saving generated graph edge list! ")
         start_time = time.time()
         save_generated_graph(N_star_edges, out_edge_file)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        # logging.info("Statistics of generated graph N_c:")
-        # start_time = time.time()
-        # stats_df_N_c, fig = stats.main(out_edge_file_N_c, [], 'N_c_step1')
-        # print(stats_df_N_c)
-        # fig.savefig(output_dir+f"/{net_name}_N_c_step1_degree_distribution.png")
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After saving N_star edges")
         logging.info("Statistics of generated graph N_star:")
         start_time = time.time()
-        # num_vertices, num_edges = get_graph_stats()
         stats_df_Nstar, fig = stats.main(out_edge_file, [], 'N_star')
         print(stats_df_Nstar)
         fig.savefig(output_dir+f"/{net_name}_N_star_step3_degree_distribution.png")
@@ -344,7 +301,9 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(combined_df)
         combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After N_star computation!!")
         logging.info(f"Total Time taken: {round(time.time() - rewiring_start_time, 3)} seconds")
+        log_cpu_ram_usage("Usage statistics after job completion!")
 
     except Exception as e:
         print(e)

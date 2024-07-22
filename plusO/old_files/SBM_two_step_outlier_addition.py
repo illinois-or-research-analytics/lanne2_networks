@@ -15,7 +15,6 @@ import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
 from scipy.sparse import dok_matrix
 import psutil
 import traceback
-from lanne2.lanne2_networks.plusO.old_files.ng_eds import generate_graph
 
 def read_graph(filepath):
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)
@@ -85,12 +84,12 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     out_node_file: str = typer.Option("", "--out_node_file", "-on")):
 
     if out_edge_file == "":
-        out_edge_file = f'SBM_twostep_outlier_addition_V2_samples/{net_name}/N_graph_edge_list.tsv'
+        out_edge_file = f'SBM_twostep_outlier_addition_samples/{net_name}/N_graph_edge_list.tsv'
     else:
         out_edge_file = out_edge_file
     
     if out_node_file == "":
-        out_node_file = f'SBM_twostep_outlier_addition_V2_samples/{net_name}/N_graph_node_list.tsv'
+        out_node_file = f'SBM_twostep_outlier_addition_samples/{net_name}/N_graph_node_list.tsv'
     else:
         out_node_file = out_node_file
     
@@ -98,12 +97,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    log_path = os.path.join(output_dir, f'{net_name}.log')
-    log_dir = os.path.dirname(log_path)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(filename=f'SBM_twostep_outlier_addition_samples/{net_name}/SBM_twostep_outlier_addition_samples.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -167,17 +161,40 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
                 else:
                     outlier_cluster_edge_counts[n] = {dest_cluster_id : 1}
 
+            # if (source in unclustered_nodes):
+            #     cluster_id_of_target = clustering_dict.get(target)
+            #     if source in outlier_cluster_edge_counts.keys():
+            #         cluster_edge_counts = outlier_cluster_edge_counts.get(source)
+            #         if cluster_id_of_target in cluster_edge_counts.keys():
+            #             cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #         else:
+            #             cluster_edge_counts[cluster_id_of_target] = 1
+            #     else:
+            #         outlier_cluster_edge_counts[source] = {cluster_id_of_target : 1}
+                
+            # if (target in unclustered_nodes):
+            #     cluster_id_of_target = clustering_dict.get(source)
+            #     if target in outlier_cluster_edge_counts.keys():
+            #         cluster_edge_counts = outlier_cluster_edge_counts.get(target)
+            #         if cluster_id_of_target in cluster_edge_counts.keys():
+            #             cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #         else:
+            #             cluster_edge_counts[cluster_id_of_target] = 1
+            #         cluster_edge_counts[cluster_id_of_target] = cluster_edge_counts.get(cluster_id_of_target)+1
+            #     else:
+            #         outlier_cluster_edge_counts[target] = {cluster_id_of_target : 1}
+
         print("len(unclustered_nodes), len(outlier_cluster_edge_count.keys()) : ", len(unclustered_nodes), len(outlier_cluster_edge_counts.keys()))
 
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
 
-        # logging.info("Statistics of read graph:")
-        # start_time = time.time()
-        # stats_df_G, fig,participation_coeffs_G ,participation_dict_G = stats.main(edge_input, unclustered_nodes, 'original_input_graph',"",clustering_dict)
-        # print(stats_df_G)
-        # fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        logging.info("Statistics of read graph:")
+        start_time = time.time()
+        stats_df_G, fig = stats.main(edge_input, unclustered_nodes, 'original_input_graph')
+        print(stats_df_G)
+        fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
         logging.info("Getting subgraph G_c")
         start_time = time.time()
@@ -204,7 +221,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
 
-        logging.info("Randomly assigning edges to unclustered nodes!")
+        logging.info("Randomly assigning edges to unclustered nodes and Saving generated graph edge list!")
         start_time = time.time()
         N_edge_list = set()
 
@@ -216,17 +233,11 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         cluster_df = cluster_df.reset_index()    
 
         node_idx_set = cluster_df['node_id'].tolist()
-        self_loops = set()
         for edge in N_c.get_edges():
-            source = node_idx_set[min(edge[0], edge[1])]
-            target = node_idx_set[max(edge[1], edge[0])]
-            if(source==target):
-                self_loops.add((source, target))
+            source = node_idx_set[edge[0]]
+            target = node_idx_set[edge[1]]
             N_edge_list.add((source, target))
-        N_c_num_edges = len(N_edge_list) - len(self_loops)
-        print("len(N_edge_list), N_c_num_edges, self_loops : ",len(N_edge_list), N_c_num_edges, len(self_loops))
-        print("G_c and N_c number of edges after removing parallel edges : ",num_cluster_edges ,N_c_num_edges)
-
+        
         cluster_id_idx_dict = {}
         for index,row in cluster_df.iterrows():
             cluster_id = row['cluster_id']
@@ -235,95 +246,45 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
             else:
                 cluster_id_idx_dict[cluster_id] = [index]
 
-        # # # Checking the outlier edge count:
+        # # Checking the outlier edge count:
         # count = 0
         # for v in unclustered_nodes:
         #     cluster_edge_counts = outlier_cluster_edge_counts.get(v)
         #     for cluster_id in cluster_edge_counts.keys():
-        #         if cluster_id != -1:
+        #         if cluster_id == -1:
+        #             count += cluster_edge_counts.get(cluster_id)/2
+        #         else:
         #             count += cluster_edge_counts.get(cluster_id)
-        #         # else:
-        #         #     count += cluster_edge_counts.get(cluster_id)
         # print("Total num of outlier edges as per cluster level dict : " , count)
 
         
-        outlier_non_outlier_edges_count = 0
-        outlier_non_outlier_edges = set()
-        outlier_cluster_degree_seq = []
-        unclustered_nodes_list = list(unclustered_nodes)
-        for source in unclustered_nodes_list:
+        count = 0
+        for source in unclustered_nodes:
             cluster_edge_counts = outlier_cluster_edge_counts.get(source)
             for cluster_id in cluster_edge_counts.keys():
-                if(cluster_id != -1):
-                    num_nodes_in_cluster = len(cluster_id_idx_dict.get(cluster_id))
-                    num_edges_in_cluster = cluster_edge_counts.get(cluster_id)
-                    random_indices = np.random.choice(num_nodes_in_cluster, num_edges_in_cluster)
-                    node_idxs_in_cluster = cluster_id_idx_dict.get(cluster_id)
-                    for random_index in random_indices:
-                        target = node_idx_set[node_idxs_in_cluster[random_index]]
-                        N_edge_list.add((source, target))
-                        outlier_non_outlier_edges.add((source, target))
-                        outlier_non_outlier_edges_count += 1
-            if(-1 in cluster_edge_counts.keys()):
-                outlier_cluster_degree_seq.append(cluster_edge_counts.get(-1))
-            else:
-                outlier_cluster_degree_seq.append(0)
+                num_nodes_in_cluster = len(cluster_id_idx_dict.get(cluster_id))
+                num_edges_in_cluster = cluster_edge_counts.get(cluster_id)
+                random_indices = np.random.choice(num_nodes_in_cluster, num_edges_in_cluster)
+                node_idxs_in_cluster = cluster_id_idx_dict.get(cluster_id)
+                for random_index in random_indices:
+                    target = node_idx_set[node_idxs_in_cluster[random_index]]
+                    N_edge_list.add((source, target))
+                    count += 1
+        print("Number of outlier edges added : ", count)
+        print("Number of outlier edges to be added : ", (G.numberOfEdges() - G_c.numberOfEdges()))
 
-        num_o_edges_within_o = G.numberOfEdges() - G_c.numberOfEdges() - outlier_non_outlier_edges_count
-        print(len(unclustered_nodes_list), len(np.array(outlier_cluster_degree_seq)))
-        print("Total number of outlier edges to be added in theory : ", (G.numberOfEdges() - G_c.numberOfEdges()))
-        print("Total number of outlier edges to be added in clusters in theory : ", outlier_non_outlier_edges_count )
-        print("Number of outlier edges added into clusters: ", len(outlier_non_outlier_edges))
-        print("Number of outlier edges to be added within outliers: ", num_o_edges_within_o)
-        """Calling generate_sbm function to rewire edges within the outlier nodes"""
-
-        probs_N_o = dok_matrix((1, 1), dtype=int)
-        probs_N_o[0,0] = num_o_edges_within_o*2
-        probs_N_o = probs_N_o.tocsr(copy=False)
-        b = [0 for i in range(len(outlier_cluster_degree_seq))]
-        if num_o_edges_within_o > 0:
-            N_o = gt.generate_sbm(b, probs_N_o, out_degs=outlier_cluster_degree_seq, micro_ers=True, micro_degs=True)
-            N_o_num_nodes = N_o.num_vertices()
-            N_o_num_edges = N_o.num_edges()
-            print("Number of vertices in N_o : " , N_o_num_nodes, "Number of edges in N_o :" , N_o_num_edges)
-        
-            N_o_self_loops = set()
-            N_o_edges = set()
-            for o_edge in N_o.get_edges():
-                source = min(o_edge[0], o_edge[1])
-                target = max(o_edge[0], o_edge[1])
-                N_o_edges.add((source, target))
-                if (source==target):
-                    N_o_self_loops.add((source, target))
-                N_edge_list.add((unclustered_nodes_list[source], unclustered_nodes_list[target]))
-
-            print("Total number of outlier outlier edges added : ", (len(N_o_edges) - len(N_o_self_loops)))
-            print("Final number of edges in output graph : ",(len(N_edge_list) - len(self_loops) - len(N_o_self_loops)))
-
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        logging.info("Saving generated graph edge list!")
-        start_time = time.time()
         save_generated_graph(N_edge_list, out_edge_file)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After saving N graph edges")
-        # logging.info("Statistics of generated graph N:")
-        # start_time = time.time()
-        # stats_df_N, fig,participation_coeffs_N ,participation_dict_N = stats.main(out_edge_file, unclustered_nodes, 'N',"",clustering_dict)
-        # print(stats_df_N)
-        # fig.savefig(output_dir+f"/{net_name}_N_degree_distribution.png")
-        # combined_df = pd.concat([stats_df_G, stats_df_N])
-        # combined_df = combined_df.reset_index()
-        # combined_df.columns = ['Metric','Stat']
-        # combined_df.loc[len(combined_df.index)] = ['Num_of_clustered_nodes', num_clustered_nodes]
-        # combined_df.loc[len(combined_df.index)] = ['Num_of_clustered_edges', num_cluster_edges]
-        # combined_df.loc[len(combined_df.index)] = ['Num_of_outlier_non_outlier_edges', (G.numberOfEdges() - G_c.numberOfEdges() - combined_df[combined_df['Metric']=='outlier_edges_original_input_graph']['Stat'].values[0])]
-        # combined_df.loc[len(combined_df.index)] = ['generated_Num_of_clustered_nodes', N_c.num_vertices()]
-        # combined_df.loc[len(combined_df.index)] = ['Generated_clustered_num_edges', N_c_num_edges]
-        # combined_df.loc[len(combined_df.index)] = ['Generated_outlier_non_outlier_edges', len(outlier_non_outlier_edges)]
-        # combined_df.loc[len(combined_df.index)] = ['Generated_outlier_outlier_edges',  (len(N_o_edges) - len(N_o_self_loops))]
-        # print(combined_df)
-        # combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        logging.info("Statistics of generated graph N:")
+        start_time = time.time()
+        stats_df_N, fig = stats.main(out_edge_file, unclustered_nodes, 'N')
+        print(stats_df_N)
+        fig.savefig(output_dir+f"/{net_name}_N_degree_distribution.png")
+        combined_df = pd.concat([stats_df_G, stats_df_N])
+        print(combined_df)
+        combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After N graph computation!!")
         logging.info(f"Total Time taken: {round(time.time() - job_start_time, 3)} seconds")
         log_cpu_ram_usage("Usage statistics after job completion!")

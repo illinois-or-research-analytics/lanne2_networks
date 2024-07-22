@@ -1,0 +1,3 @@
+cluster,n,m,modularity,connectivity,connectivity_normalized_log10(n),conductance
+2,4,3,-0.018166089965397897,1,1.660964047443681,0.6
+3,3,0,-0.031141868512110732,0,0.0,1.0

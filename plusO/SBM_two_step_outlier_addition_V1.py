@@ -11,11 +11,11 @@ import logging
 import matplotlib.pyplot as plt
 import stats
 import networkit as nk
-import ng_eds as ng_eds
+import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
 from scipy.sparse import dok_matrix
 import psutil
 import traceback
-from ng_eds import generate_graph
+from lanne2.lanne2_networks.plusO.old_files.ng_eds import generate_graph
 
 def read_graph(filepath):
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)

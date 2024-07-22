@@ -9,12 +9,11 @@ import os
 import time
 import logging
 import matplotlib.pyplot as plt
-import stats
 import networkit as nk
-import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
 from scipy.sparse import dok_matrix
 import psutil
 import traceback
+import shutil
 
 def read_graph(filepath):
     edgelist_reader = nk.graphio.EdgeListReader("\t", 0, directed=False, continuous=False)
@@ -89,11 +88,22 @@ def get_connected_components(G_star):
     component_sizes = cc.getComponentSizes()
     return non_singleton_components
 
+def deg_sampler(index):
+    global degree_seq
+    return degree_seq[index]
+
+def generate_graph(deg_seq):
+    global degree_seq
+    degree_seq = deg_seq
+    N = len(deg_seq)
+    generated_graph = gt.random_graph(N, deg_sampler=deg_sampler, directed=False, parallel_edges=False, self_loops=False)
+    return generated_graph
+
 def rewire_non_singleton_components(non_singleton_components, deg_sequences, node_mapping):
     numerical_to_string_mapping = {v: k for k, v in node_mapping.items()}
     edge_lists = []
     for idx,component in enumerate(non_singleton_components):
-        generated_graph = ng_eds.generate_graph(deg_sequences[idx])
+        generated_graph = generate_graph(deg_sequences[idx])
         # print(generated_graph)
         vertices = generated_graph.get_vertices()
         edge_list = []
@@ -107,27 +117,36 @@ def save_generated_graph(edges_list, out_edge_file):
     edge_df = pd.DataFrame(edges_list, columns=['source', 'target'])
     edge_df.to_csv(out_edge_file, sep='\t', index=False, header=None)
 
+def copy_and_append(src_file, dest_file, new_edges):
+    shutil.copy(src_file, dest_file)
+    print(f"File copied from {src_file} to {dest_file}")
+
+    with open(dest_file, 'a') as f:
+        for edge in new_edges:
+            f.write(str(edge[0])+"\t"+str(edge[1])+"\n")
+        print(f"Appended new edges to {dest_file}")
+
 def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     cluster_input: str = typer.Option(..., "--cluster_filepath", "-c"),
     net_name: str = typer.Option(..., "--net_name", "-m"),
     out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
-    out_node_file: str = typer.Option("", "--out_node_file", "-on")):
+    subnet_file: str = typer.Option("", "--subnet_file", "-s")):
 
     if out_edge_file == "":
-        out_edge_file = f'SBM_unmodified_samples/{net_name}/N_graph_edge_list.tsv'
+        out_edge_file = f'ABCDMCS_outlier_strategy_OC_samples/{net_name}/0.001/rep_0.tsv'
     else:
         out_edge_file = out_edge_file
-    
-    if out_node_file == "":
-        out_node_file = f'SBM_unmodified_samples/{net_name}/N_graph_node_list.tsv'
-    else:
-        out_node_file = out_node_file
     
     output_dir = os.path.dirname(out_edge_file)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    logging.basicConfig(filename=f'SBM_unmodified_samples/{net_name}/SBM_unmodified_samples.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    log_path = os.path.join(output_dir, f'{net_name}.log')
+    log_dir = os.path.dirname(log_path)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -149,18 +168,30 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         G,node_mapping = read_graph(edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After reading graph")
-        # logging.info("Statistics of read graph:")
-        # start_time = time.time()
-        # stats_df_G, fig = stats.main(edge_input, [], 'original_input_graph')
-        # print(stats_df_G)
-        # fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+
         logging.info("Reading graph clustering:")
         start_time = time.time()
         cluster_df = read_clustering(cluster_input)
         clustering_dict = dict(zip(cluster_df['node_id'], cluster_df['cluster_id']))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
+
+        logging.info("Getting subgraph G_c")
+        start_time = time.time()
+        clustered_nodes = cluster_df['node_id'].unique()
+        clustered_nodes_mapped = [node_mapping.get(str(v)) for v in clustered_nodes]
+        G_c = nk.graphtools.subgraphFromNodes(G, clustered_nodes_mapped)
+        num_clustered_nodes, num_cluster_edges = get_graph_stats(G_c)
+        print("Number of clustered nodes : ", num_clustered_nodes , "\t Number of clustered edges : ", num_cluster_edges)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
+
+        logging.info("Getting subgraph G_star :  G - G_c")
+        start_time = time.time()
+        G_star = remove_edges(G,G_c)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("")
+
         logging.info("Assigning all unclustered nodes to a new cluster")
         start_time = time.time()
         new_cluster_id = np.max(cluster_df['cluster_id']) + 1
@@ -177,71 +208,70 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         for v in unclustered_nodes:
             row = {'node_id': v, 'cluster_id' : new_cluster_id}
             unclustered_node_cluster_mapping.append(row)
-            new_cluster_id += 1
         
         # cluster_df = pd.concat([cluster_df, pd.DataFrame([row])], ignore_index=True)
         cluster_df = cluster_df._append(unclustered_node_cluster_mapping, ignore_index=True)
         cluster_df = cluster_df.reset_index()
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("")
-        # logging.info("Statistics of read graph:")
-        # start_time = time.time()
-        # stats_df_G, fig, participation_coeffs_G ,participation_dict_G = stats.main(edge_input, unclustered_nodes, 'original_input_graph', "", clustering_dict)
-        # print(stats_df_G)
-        # fig.savefig(output_dir+f"/{net_name}_original_degree_distribution.png")
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        logging.info("Edges calculation of read graph:")
-        clustered_nodes_id_org_set = set(clustered_nodes_id_org)
-        start_time = time.time()
-        clustered_edges_org = 0
-        outlier_cluster_edges_org = 0
-        outlier_edges_org = 0
-        for edge in G.iterEdges():
-            source = node_mapping_reversed.get(min(edge[0],edge[1]))
-            target = node_mapping_reversed.get(max(edge[0],edge[1]))
-            if source in clustered_nodes_id_org_set and target in clustered_nodes_id_org_set:
-                clustered_edges_org += 1
-            elif source in clustered_nodes_id_org_set or target in clustered_nodes_id_org_set:
-                outlier_cluster_edges_org += 1
-            else:
-                outlier_edges_org += 1
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        logging.info("Getting edge probs matrix for G")
-        start_time = time.time()
-        probs = get_probs(G, node_mapping, cluster_df)
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        log_cpu_ram_usage("After getting probs matrix")
-        logging.info("Generating Synthetic graph N_c with probs")
-        start_time = time.time()
-        cluster_assignment = cluster_df['cluster_id'].to_numpy()
-        out_deg_seq = get_degree_sequence(cluster_df, G, node_mapping, 3, [])
-        N = gt.generate_sbm(cluster_assignment, probs, out_degs=out_deg_seq, micro_ers=True, micro_degs=True)
-        print("N graph statistics : ", N.num_vertices(), N.num_edges())
-        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        log_cpu_ram_usage("")
-        logging.info("Saving generated graph edge list! ")
-        start_time = time.time()
+        
         N_edge_list = set()
-        node_idx_set = cluster_df['node_id'].tolist()
-        N_self_loops = set()
-        cluster_edges = 0
-        outlier_edges = 0
-        outlier_cluster_edges = 0
-        for edge in N.get_edges():
-            source = node_idx_set[min(edge[0],edge[1])]
-            target = node_idx_set[max(edge[1], edge[0])]
-            if (source==target):
-                N_self_loops.add((source, target))
-            N_edge_list.add((source, target))
-            if(source != target):
-                if source in unclustered_nodes and target in unclustered_nodes:
-                    outlier_edges += 1
-                elif source in unclustered_nodes or target in unclustered_nodes:
-                    outlier_cluster_edges += 1
+        if len(unclustered_nodes)>0:
+            logging.info("Edges calculation of read graph:")
+            clustered_nodes_id_org_set = set(clustered_nodes_id_org)
+            start_time = time.time()
+            clustered_edges_org = 0
+            outlier_cluster_edges_org = 0
+            outlier_edges_org = 0
+            for edge in G.iterEdges():
+                source = node_mapping_reversed.get(min(edge[0],edge[1]))
+                target = node_mapping_reversed.get(max(edge[0],edge[1]))
+                if source in clustered_nodes_id_org_set and target in clustered_nodes_id_org_set:
+                    clustered_edges_org += 1
+                elif source in clustered_nodes_id_org_set or target in clustered_nodes_id_org_set:
+                    outlier_cluster_edges_org += 1
                 else:
-                    cluster_edges += 1
+                    outlier_edges_org += 1
+            logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
-        save_generated_graph(N_edge_list, out_edge_file)
+            
+
+            logging.info("Getting edge probs matrix for G_star")
+            start_time = time.time()
+            probs = get_probs(G_star, node_mapping, cluster_df)
+            logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+            log_cpu_ram_usage("After getting probs matrix")
+            logging.info("Generating Synthetic graph N_star with probs")
+            start_time = time.time()
+            cluster_assignment = cluster_df['cluster_id'].to_numpy()
+            out_deg_seq = get_degree_sequence(cluster_df, G_star, node_mapping, 3, [])
+            N = gt.generate_sbm(cluster_assignment, probs, out_degs=out_deg_seq, micro_ers=True, micro_degs=True)
+            print("N graph statistics : ", N.num_vertices(), N.num_edges())
+            logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+            log_cpu_ram_usage("")
+            logging.info("Saving generated graph edge list! ")
+            start_time = time.time()
+            node_idx_set = cluster_df['node_id'].tolist()
+            N_self_loops = set()
+            cluster_edges = 0
+            outlier_edges = 0
+            outlier_cluster_edges = 0
+            for edge in N.get_edges():
+                source = node_idx_set[min(edge[0],edge[1])]
+                target = node_idx_set[max(edge[1], edge[0])]
+                if (source==target):
+                    N_self_loops.add((source, target))
+                N_edge_list.add((source, target))
+                if(source != target):
+                    if source in unclustered_nodes and target in unclustered_nodes:
+                        outlier_edges += 1
+                    elif source in unclustered_nodes or target in unclustered_nodes:
+                        outlier_cluster_edges += 1
+                    else:
+                        cluster_edges += 1
+
+        # save_generated_graph(N_edge_list, out_edge_file)
+        copy_and_append(subnet_file, out_edge_file, N_edge_list)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After saving N graph edges")
         # logging.info("Statistics of generated graph N:")
@@ -262,7 +292,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         # print(combined_df)
         # combined_df.to_csv(f'{output_dir}/{net_name}_stats.csv')
         # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        # log_cpu_ram_usage("After N graph computation!!")
+        log_cpu_ram_usage("After N graph computation!!")
         logging.info(f"Total Time taken: {round(time.time() - job_start_time, 3)} seconds")
         log_cpu_ram_usage("Usage statistics after job completion!")
 
@@ -290,8 +320,8 @@ if __name__ == "__main__":
         help='output edgelist path'
         )
     parser.add_argument(
-        '-on', metavar='out_node_file', type=str, required=False,
-        help='output nodelist path'
+        '-s', metavar='subnet_file', type=str, required=True,
+        help='clustered component edge list'
         )
     
     args = parser.parse_args()
