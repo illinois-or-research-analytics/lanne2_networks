@@ -50,13 +50,15 @@ def compute_xi(G, clustering_dict):
         # TODO: what to do with outliers' connections?
         # if n1 not in node2com or n2 not in node2com:
         #     continue
-        # if n1 not in clustering_dict and n2 not in clustering_dict:
-        #     out_degree[n1] += 1
-        #     out_degree[n2] += 1
-        #     # continue
+        if n1 not in clustering_dict and n2 not in clustering_dict:
+            # out_degree[n1] += 1
+            # out_degree[n2] += 1
+            continue
         if n1 not in clustering_dict or n2 not in clustering_dict:
-            out_degree[n1] += 1
-            out_degree[n2] += 1
+            if n2 not in clustering_dict:
+                out_degree[n1] += 1
+            elif n1 not in clustering_dict:
+                out_degree[n2] += 1
             continue
 
         if clustering_dict[n1] == clustering_dict[n2]:  # nodes are co-clustered
