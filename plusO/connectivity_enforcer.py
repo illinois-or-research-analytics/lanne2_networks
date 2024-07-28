@@ -17,6 +17,8 @@ from hm01.mincut import viecut
 import csv
 import heapq
 
+import plusedges_v2 as pe_v2
+
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -33,7 +35,7 @@ def read_graph(input_network):
     node_mapping_dict = elr.getNodeMap()
     return graph, node_mapping_dict
 
-def read_clustering(input_clustering, required_cluster_stats):
+def read_clustering(input_clustering):
     # Read the clustering
     cluster_df = pd.read_csv(input_clustering, sep="\t", header=None, names=[
                              "node_id", "cluster_name"], dtype=str)
@@ -43,15 +45,8 @@ def read_clustering(input_clustering, required_cluster_stats):
         for idx, value in enumerate(unique_values)
     }
     cluster_df['cluster_id'] = cluster_df['cluster_name'].map(value_map)
-    
-    
-    # Read required cluster stats
-    cluster_stats_df = pd.read_csv(required_cluster_stats, dtype=str)
-    cluster_stats_df['cluster'] = cluster_stats_df['cluster'].str.strip('"')
-    cluster_stats_df = cluster_stats_df[cluster_stats_df['cluster'] != 'Overall']
-    cluster_stats_df = cluster_stats_df[['cluster', 'connectivity']]
 
-    return cluster_df, cluster_stats_df, value_map
+    return cluster_df, value_map
 
 def remove_edges(G_c, edges_to_remove):
     for edge in edges_to_remove:
@@ -151,29 +146,26 @@ def load_clusters(filepath, cluster_iid2id, cluster_order) -> List[IntangibleSub
 
 def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     cluster_input: str = typer.Option(..., "--cluster_filepath", "-c"),
-    net_name: str = typer.Option(..., "--net_name", "-m"),
-    cluster_stats: str = typer.Option(..., "--cluster_stats", "-cs"),
-    out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
+    output_dir: str = typer.Option("", "--output_dir", "-o"),
     emp_edge_input: str = typer.Option(..., "--empirical_filepath", "-ef")):
-
-    if out_edge_file == "":
-        out_edge_file = f'SBM_subnetworks_minconnectivity_samples/{net_name}/SBM_MCS_mindeg_edge_list.tsv'
-    else:
-        out_edge_file = out_edge_file
-
-    out_edge_file1 = out_edge_file.replace('SBM_mcs','SBM_mcs_mindeg')
-    out_edge_file2 = out_edge_file.replace('SBM_mcs','SBM_mcs_connected')
-    out_edge_file3 = out_edge_file
-    out_edge_file4 = out_edge_file.replace("SBM_mcs","SBM_mcs_plusEdges")
     
-    output_dir = os.path.dirname(out_edge_file1)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    log_path = f'SubNetworks_SBMMCS_samples_v3/logs/SBM_enforce_minconnectivity_{net_name}.log'
-    log_dir = os.path.dirname(log_path)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    out_edge_file = os.path.join(output_dir, f'ce.tsv')
+
+    out_edge_file1 = out_edge_file.replace('ce.tsv','ce_mindeg.tsv')
+    out_edge_file2 = out_edge_file.replace('ce.tsv','ce_connected.tsv')
+    out_edge_file3 = out_edge_file.replace('ce.tsv','ce_wellconnected.tsv')
+    out_edge_file4 = out_edge_file.replace('ce.tsv','ce_plusedges_v1.tsv')
+    out_edge_file5 = out_edge_file.replace('ce.tsv','ce_plusedges_v2.tsv')
+    
+    
+    
+    log_path = os.path.join(output_dir, f'ce.log')
+    # log_dir = os.path.dirname(log_path)
+    # if not os.path.exists(log_dir):
+    #     os.makedirs(log_dir)
     logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
@@ -188,10 +180,9 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         disk_percent = psutil.disk_usage('/').percent
         logging.info(f"Step: {step_name} | CPU Usage: {cpu_percent}% | RAM Usage: {ram_percent}% | Disk Usage: {disk_percent}")
 
-
     try:
         log_cpu_ram_usage("Start")
-        logging.info("Reading input graph...")
+        logging.info("Reading input graph G!")
         start_time = time.time()
         graph,node_mapping = read_graph(edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
@@ -202,7 +193,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         
         logging.info("Reading graph clustering:")
         start_time = time.time()
-        cluster_df,cluster_stats_df,cluster_mapping_dict = read_clustering(cluster_input, cluster_stats)
+        cluster_df,cluster_mapping_dict = read_clustering(cluster_input)
         ## -- clustering_dict  = {node_id : cluster_iid} --
         clustering_dict = dict(
             zip(
@@ -226,7 +217,21 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After reading clustering data!")
 
-        logging.info("Reading empirical graph...")
+        logging.info("Compute cluster stats for empirical graph! - emp_G")
+        start_time = time.time()
+
+        cluster_stats_df = \
+            compute_cluster_stats(
+                emp_edge_input,
+                cluster_input,
+                cluster_mapping_dict_reversed,
+                cluster_order,
+            )
+        
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
+        log_cpu_ram_usage("After cluster stats!")
+
+        logging.info("Reading empirical graph emp_G!")
         start_time = time.time()
         emp_graph,emp_node_mapping = read_graph(emp_edge_input)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
@@ -236,7 +241,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         log_cpu_ram_usage("After reading empirical graph!")
 
 
-        logging.info("Getting clustered component of the network!")
+        logging.info("Getting clustered component (without inter cluster edges) of the network G!")
         start_time = time.time()
         clustered_nodes = [node_mapping[v] for v in clustering_dict.keys()]
         G_c = nk.graphtools.subgraphFromNodes(graph, clustered_nodes)
@@ -262,14 +267,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         emp_degrees = dict()
         sbm_degrees = dict()
         available_node_degrees = dict()
-        ## Wrong calculation
-        # for c_node in clustered_nodes: 
-        #     emp_degrees[c_node] = emp_graph.degree(c_node)
-        #     sbm_degrees[c_node] = graph.degree(c_node)
-        #     deg_diff = emp_degrees[c_node]-sbm_degrees[c_node]
-        #     if(deg_diff>0):
-        #         available_node_degrees[c_node] = deg_diff
-        
+    
         ## Correction
         for c_node in clustering_dict.keys(): 
             emp_node = emp_node_mapping[c_node]
@@ -285,7 +283,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         ## Get all the nodes with available degrees
         available_node_set = set(available_node_degrees.keys())
         
-        logging.info("Ensuring minimum degree")
+        logging.info("Stage 1 : Ensuring minimum degree")
         start_time = time.time()
         cluster_count = 0
         total_edges = 0
@@ -376,7 +374,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After cluster stats!")
 
-        logging.info("Enforce min connectivity in disconnected clusters!")
+        logging.info("Stage 2 : Enforce connectivity in disconnected clusters!")
         start_time = time.time()
         conn_new_edges = set()
         total_edges = 0
@@ -488,7 +486,7 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After cluster stats of G2!")
 
-        logging.info("Enforcing minconnectivity in connected clusters of G2!")
+        logging.info("Stage 3 : Enforcing required connectivity in connected clusters of G2!")
         start_time = time.time()
         # Convert the 'connectivity' columns to integers
         cluster_stats_G2['connectivity'] = cluster_stats_G2['connectivity'].astype(int)
@@ -612,102 +610,9 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         print(poor_connected_clusters_G3.to_string(index=False))
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
         log_cpu_ram_usage("After cluster stats of G3!")
-
-        # ## Stage 4: 
-        # ## Testing Stage 4 - trial 1
-        # logging.info("Adding Remaining edges to final graph!")
-        # print("Current number of edges in graph : ", G2.numberOfEdges())
-        # start_time = time.time()
-        # degree_edges = []
-        # nodes_processed = 0
-        # degree_corrected = 0
-        # print("Number of available nodes : ", len(available_node_degrees.keys()))
         
-        # # Convert available_node_degrees to a max-heap
-        # available_node_degrees = {node: degree for node, degree in available_node_degrees.items() if degree > 0}
-        # max_heap = [(-degree, node) for node, degree in available_node_degrees.items()]
-        # heapq.heapify(max_heap)
-
-        # while max_heap:
-        #     _, available_c_node = heapq.heappop(max_heap)
-        #     if available_c_node not in available_node_degrees:
-        #         continue
-
-        #     cluster_id = cluster_mapping_dict_reversed[clustering_dict[node_mapping_reversed[available_c_node]]]
-        #     nodes = list(cluster_node_mapping[cluster_mapping_dict[cluster_id]])
-        #     available_c_nodes = available_node_set.intersection(set(nodes))
-        #     neighbors = set(G2.iterNeighbors(available_c_node))
-        #     neighbors.add(available_c_node)
-        #     non_neighbors = set(nodes) - neighbors
-        #     available_c_non_neighbors = available_c_nodes - neighbors
-        #     available_other_non_neighbors = available_node_set - available_c_nodes
-        #     available_other_non_neighbors = available_other_non_neighbors - neighbors 
-
-        #     avail_degree = available_node_degrees[available_c_node]
-        #     k = avail_degree
-
-        #     while k > 0:
-        #         c_idx_available = False
-        #         non_c_idx_available = False
-        #         if available_c_non_neighbors:
-        #             # edge_end = np.random.choice(list(available_c_non_neighbors))
-        #             edge_end = available_c_non_neighbors.pop()
-        #             c_idx_available = True
-        #             # available_c_non_neighbors.add(edge_end)
-        #         elif available_other_non_neighbors:
-        #             # edge_end = np.random.choice(list(available_other_non_neighbors))
-        #             edge_end = available_other_non_neighbors.pop()
-        #             non_c_idx_available = True
-        #             # available_other_non_neighbors.add(edge_end)
-        #         else:
-        #             break
-                
-        #         G2.addEdge(available_c_node, edge_end)
-        #         degree_edges.append((available_c_node, edge_end))
-
-        #         if c_idx_available:
-        #             available_node_degrees[edge_end] -= 1
-        #             if available_node_degrees[edge_end] == 0:
-        #                 available_c_nodes.remove(edge_end)
-        #                 available_node_set.remove(edge_end)
-        #                 del available_node_degrees[edge_end]
-        #                 # available_c_non_neighbors.remove(edge_end)
-        #             degree_corrected += 1
-        #         elif non_c_idx_available:
-        #             available_node_degrees[edge_end] -= 1
-        #             if available_node_degrees[edge_end] == 0:
-        #                 available_node_set.remove(edge_end)
-        #                 del available_node_degrees[edge_end]
-        #                 # available_other_non_neighbors.remove(edge_end)
-        #             degree_corrected += 1
-
-        #         k -= 1
-
-        #     del available_node_degrees[available_c_node]
-        #     available_node_set.remove(available_c_node)
-        #     nodes_processed += 1
-        #     if nodes_processed % 1000 == 0:
-        #         print("Nodes processed and available nodes : ", nodes_processed,len(available_node_degrees.keys()))
-
-        # print("Total number of edges after addition: ", G2.numberOfEdges())
-        # print("Total number of edges in empirical network: ", emp_graph.numberOfEdges())
-        # print("Total number of degree edges added: ", len(degree_edges))
-        # print("Number of available node degrees: ", available_node_degrees)
-        # if degree_edges:
-        #     print("Total number of degree corrected edges added out of total edges: ", degree_corrected, (degree_corrected / len(degree_edges) * 100))
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-
-        # logging.info("Saving new graph! G4")
-        # start_time = time.time()
-        # # mincut_edges.extend(degree_edges)
-        # mincut_new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in degree_edges]
-        # copy_and_append(out_edge_file3, out_edge_file4, mincut_new_edges_ids)
-        # logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-
-        # ## End testing 
-
-        ## Testing Stage 4 - trial 2
-        logging.info("Adding Remaining edges to final graph!")
+        ## Testing Stage 4 - trial 1
+        logging.info("PlusEdges V1 : Adding edges to final graph to satisfy degree sequence!")
         print("Current number of edges in graph : ", G2.numberOfEdges())
         start_time = time.time()
         degree_edges = set()
@@ -767,7 +672,12 @@ def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
         degree_new_edges_ids = [(node_mapping_reversed[u], node_mapping_reversed[v]) for (u,v) in degree_edges]
         copy_and_append(out_edge_file3, out_edge_file4, degree_new_edges_ids)
         logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
-        ## End testing 
+        
+        ## Testing Stage 4 - trial 2
+        logging.info("PlusEdges V2 : Adding edges to final graph to satisfy degree sequence!")
+        start_time = time.time()
+        pe_v2.main(edge_input=out_edge_file3, cluster_input=cluster_input,out_edge_file=out_edge_file5,emp_edge_input=emp_edge_input)
+        logging.info(f"Time taken: {round(time.time() - start_time, 3)} seconds")
 
         # logging.info("Deleting Stage 1 and 2 files!")
         # start_time = time.time()
@@ -804,17 +714,13 @@ if __name__ == "__main__":
         '-c', metavar='clustering_filepath', type=str, required=True,
         help='network clustering filepath'
         )
+    # parser.add_argument(
+    #     '-m', metavar='network_name', type=str, required=False,
+    #     help='name of the network'
+    #     )
     parser.add_argument(
-        '-m', metavar='network_name', type=str, required=True,
-        help='name of the network'
-        )
-    parser.add_argument(
-        '-cs', metavar='cluster_stats', type=str, required=True,
-        help='stats of the clusters of network'
-        )
-    parser.add_argument(
-        '-oe', metavar='out_edge_file', type=str, required=False,
-        help='output edgelist path'
+        '-o', metavar='output_dir', type=str, required=True,
+        help='output directory'
         )
     parser.add_argument(
         '-ef', metavar='emp_edge_input', type=str, required=True,

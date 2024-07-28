@@ -11,7 +11,6 @@ import logging
 import matplotlib.pyplot as plt
 import stats
 import networkit as nk
-import lanne2.lanne2_networks.plusO.old_files.ng_eds as ng_eds
 from scipy.sparse import dok_matrix
 import psutil
 import traceback
@@ -89,19 +88,19 @@ def get_connected_components(G_star):
     component_sizes = cc.getComponentSizes()
     return non_singleton_components
 
-def rewire_non_singleton_components(non_singleton_components, deg_sequences, node_mapping):
-    numerical_to_string_mapping = {v: k for k, v in node_mapping.items()}
-    edge_lists = []
-    for idx,component in enumerate(non_singleton_components):
-        generated_graph = ng_eds.generate_graph(deg_sequences[idx])
-        # print(generated_graph)
-        vertices = generated_graph.get_vertices()
-        edge_list = []
-        edges = generated_graph.get_edges()
-        for edge in edges:
-            edge_list.append((int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))))
-        edge_lists.append(edge_list)
-    return edge_lists
+# def rewire_non_singleton_components(non_singleton_components, deg_sequences, node_mapping):
+#     numerical_to_string_mapping = {v: k for k, v in node_mapping.items()}
+#     edge_lists = []
+#     for idx,component in enumerate(non_singleton_components):
+#         generated_graph = ng_eds.generate_graph(deg_sequences[idx])
+#         # print(generated_graph)
+#         vertices = generated_graph.get_vertices()
+#         edge_list = []
+#         edges = generated_graph.get_edges()
+#         for edge in edges:
+#             edge_list.append((int(numerical_to_string_mapping.get(component[edge[0]])), int(numerical_to_string_mapping.get(component[edge[1]]))))
+#         edge_lists.append(edge_list)
+#     return edge_lists
 
 def save_generated_graph(edges_list, out_edge_file):
     edge_df = pd.DataFrame(edges_list, columns=['source', 'target'])
@@ -109,25 +108,20 @@ def save_generated_graph(edges_list, out_edge_file):
 
 def main(edge_input: str = typer.Option(..., "--filepath", "-f"),
     cluster_input: str = typer.Option(..., "--cluster_filepath", "-c"),
-    net_name: str = typer.Option(..., "--net_name", "-m"),
-    out_edge_file: str = typer.Option("", "--out_edge_file", "-oe"),
-    out_node_file: str = typer.Option("", "--out_node_file", "-on")):
+    output_dir: str = typer.Option("", "--output_directory", "-o")):
 
-    if out_edge_file == "":
-        out_edge_file = f'SBM_unmodified_samples/{net_name}/N_graph_edge_list.tsv'
-    else:
-        out_edge_file = out_edge_file
-    
-    if out_node_file == "":
-        out_node_file = f'SBM_unmodified_samples/{net_name}/N_graph_node_list.tsv'
-    else:
-        out_node_file = out_node_file
-    
-    output_dir = os.path.dirname(out_edge_file)
+    # if out_edge_file == "":
+    #     out_edge_file = f'SBM_unmodified_samples/{net_name}/N_graph_edge_list.tsv'
+    # else:
+    #     out_edge_file = out_edge_file
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    logging.basicConfig(filename=f'SBM_unmodified_samples/{net_name}/SBM_unmodified_samples.log', filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    out_edge_file = os.path.join(output_dir, f'syn_sbm.tsv')
+    
+    log_path = os.path.join(output_dir, f'SBM_unmodified.log')
+
+    logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -282,16 +276,8 @@ if __name__ == "__main__":
         help='network clustering filepath'
         )
     parser.add_argument(
-        '-m', metavar='network_name', type=str, required=True,
-        help='name of the network'
-        )
-    parser.add_argument(
-        '-oe', metavar='out_edge_file', type=str, required=False,
-        help='output edgelist path'
-        )
-    parser.add_argument(
-        '-on', metavar='out_node_file', type=str, required=False,
-        help='output nodelist path'
+        '-o', metavar='output_dir', type=str, required=True,
+        help='output directory'
         )
     
     args = parser.parse_args()
