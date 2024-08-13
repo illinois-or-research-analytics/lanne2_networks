@@ -55,10 +55,8 @@ def compute_xi(G, clustering_dict):
             # out_degree[n2] += 1
             continue
         if n1 not in clustering_dict or n2 not in clustering_dict:
-            if n2 not in clustering_dict:
-                out_degree[n1] += 1
-            elif n1 not in clustering_dict:
-                out_degree[n2] += 1
+            out_degree[n1] += 1
+            out_degree[n2] += 1
             continue
 
         if clustering_dict[n1] == clustering_dict[n2]:  # nodes are co-clustered
