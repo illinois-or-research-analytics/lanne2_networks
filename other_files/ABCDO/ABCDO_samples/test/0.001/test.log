@@ -1,0 +1,14 @@
+2024-07-18 19:00:06,917 - INFO - Step: Start | CPU Usage: 10.0% | RAM Usage: 11.0% | Disk Usage: 2.7
+2024-07-18 19:00:06,917 - INFO - Reading generated graph...test
+2024-07-18 19:00:06,924 - INFO - Time taken: 0.007 seconds
+2024-07-18 19:00:06,924 - INFO - Step: After reading graph | CPU Usage: 76.9% | RAM Usage: 11.0% | Disk Usage: 2.7
+2024-07-18 19:00:06,924 - INFO - Reading graph clustering:
+2024-07-18 19:00:06,930 - INFO - Time taken: 0.006 seconds
+2024-07-18 19:00:06,931 - INFO - Step:  | CPU Usage: 60.0% | RAM Usage: 11.0% | Disk Usage: 2.7
+2024-07-18 19:00:06,931 - INFO - Compute params!
+2024-07-18 19:00:06,933 - INFO - Time taken: 0.002 seconds
+2024-07-18 19:00:06,934 - INFO - Step:  | CPU Usage: 40.0% | RAM Usage: 11.0% | Disk Usage: 2.7
+2024-07-18 19:00:06,934 - INFO - Writing to files!
+2024-07-18 19:00:06,935 - INFO - Time taken: 0.001 seconds
+2024-07-18 19:00:06,935 - INFO - Total Time taken: 0.019 seconds
+2024-07-18 19:00:06,935 - INFO - Step: Usage statistics after job completion! | CPU Usage: 33.3% | RAM Usage: 11.0% | Disk Usage: 2.7
