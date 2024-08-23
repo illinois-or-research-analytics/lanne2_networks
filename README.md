@@ -7,7 +7,7 @@ within clusters, while maintaining the good fit with respect to other net-
 work and cluster statistics.
 
 Firstly, there are two steps in creating a synthetic benchmark network N using the parameters calculated from a real-world network G and it's clustering C.
-Given a network G and clustering C, first step involves only the clustered sub network G_c. That is, the sub network involving the clustered nodes and edges between them.
+Given a network G and clustering C, first step involves only the clustered subnetwork G_c. That is, the subnetwork involving the clustered nodes and edges between them.
 Second step involves adding the outliers back to the output of the first step.
  
 **First step again has two steps:**
@@ -17,7 +17,7 @@ Second step involves adding the outliers back to the output of the first step.
 **CODE :**
 <br>
 
-To get the clustered sub network you may use the helper script : generate_synthetic_networks/clean_outliers.py <br>
+To get the clustered subnetwork you may use the helper script : generate_synthetic_networks/clean_outliers.py <br>
  
 **First Step :**
 
