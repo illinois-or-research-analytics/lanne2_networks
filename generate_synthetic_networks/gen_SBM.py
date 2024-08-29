@@ -9,7 +9,6 @@ import os
 import time
 import logging
 import matplotlib.pyplot as plt
-import stats
 import networkit as nk
 from scipy.sparse import dok_matrix
 import psutil
