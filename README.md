@@ -26,7 +26,7 @@ a) **Generate SBM network :** <br>
         - Sample Command : python3 gen_SBM.py -f ‘subnetwork edge list filepath’ -c ‘clustering file path’ -o ‘output directory’ <br><br>
 b) **RECCS (both versions) :** <br>
         - Code file : generate_synthetic_networks/reccs.py <br>
-        - Sample Command : python3 reccs.py -f ‘output edge list from step (a)’ -c ‘clustering file path’ -o ‘output directory’ -ef ‘empirical edge list file path’ <br>
+        - Sample Command : python3 reccs.py -f ‘output edge list from step (a)’ -c ‘clustering file path’ -o ‘output directory’ -ef ‘subnetwork edge list filepath’ <br>
                
 **Note :** Output directory will have edge lists saved after each stage of RECCS. We only need to consider two files : ce_plusedges_v1.tsv (RECCSv1) and ce_plusedges_v2.tsv (RECCSv2)<br>
  
